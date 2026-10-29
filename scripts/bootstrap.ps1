@@ -67,7 +67,7 @@ function Ensure-Node {
   $NodeArch = switch ($Architecture) { 'AMD64' { 'x64' } 'ARM64' { 'arm64' } default { throw '仅支持 Windows x64 / ARM64' } }
   $IndexPath = Join-Path $StageRoot 'node-index.json'
   Get-Download 'https://nodejs.org/dist/index.json' $IndexPath
-  $Releases = Get-Content -Raw -LiteralPath $IndexPath | ConvertFrom-Json
+  $Releases = Get-Content -Raw -Encoding UTF8 -LiteralPath $IndexPath | ConvertFrom-Json
   $Release = $Releases | Where-Object { $_.version -match '^v24\.\d+\.\d+$' -and $_.lts -and $_.files -contains ('win-' + $NodeArch + '-zip') } | Select-Object -First 1
   if (-not $Release) { throw '官网没有返回匹配的 Node.js 24 LTS 版本' }
   $NodeName = 'node-' + $Release.version + '-win-' + $NodeArch
@@ -103,7 +103,7 @@ try {
     if (-not $Target.PSIsContainer -or ($Target.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw '安装目录不能是文件或目录链接' }
     if (Test-Path -LiteralPath (Join-Path $InstallRoot '.git')) { throw '目标是 Git 工作区；请换一个空目录，避免覆盖源码修改' }
     if (Test-Path -LiteralPath $MarkerPath) {
-      $OldMarker = Get-Content -Raw -LiteralPath $MarkerPath | ConvertFrom-Json
+      $OldMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath $MarkerPath | ConvertFrom-Json
       if ($OldMarker.repository -ne $Repository -or $OldMarker.installRoot -ne $InstallRoot) { throw '安装目录标记不匹配，已停止' }
     } elseif (@(Get-ChildItem -LiteralPath $InstallRoot -Force).Count) { throw '目标目录已有其他文件。请指定空目录，或使用项目自带的升级脚本。' }
   }
@@ -111,7 +111,7 @@ try {
   Write-Host '正在从 GitHub 获取最新版 Build Standalone…'
   $CommitPath = Join-Path $StageRoot 'commit.json'
   Get-Download ('https://api.github.com/repos/' + $Repository + '/commits/' + $Ref) $CommitPath
-  $Commit = (Get-Content -Raw -LiteralPath $CommitPath | ConvertFrom-Json).sha
+  $Commit = (Get-Content -Raw -Encoding UTF8 -LiteralPath $CommitPath | ConvertFrom-Json).sha
   if ($Commit -notmatch '^[0-9a-f]{40}$') { throw 'GitHub 返回的版本编号无效' }
   $SourceZip = Join-Path $StageRoot 'source.zip'
   Get-Download ('https://codeload.github.com/' + $Repository + '/zip/' + $Commit) $SourceZip
@@ -120,7 +120,7 @@ try {
   $Folders = @(Get-ChildItem -LiteralPath $Extracted -Directory)
   if ($Folders.Count -ne 1) { throw 'GitHub 源码目录结构异常' }
   $SourceRoot = $Folders[0].FullName
-  if ((Get-Content -Raw -LiteralPath (Join-Path $SourceRoot 'package.json') | ConvertFrom-Json).name -ne 'build-standalone') { throw '下载的项目身份不匹配' }
+  if ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $SourceRoot 'package.json') | ConvertFrom-Json).name -ne 'build-standalone') { throw '下载的项目身份不匹配' }
   if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot 'scripts\start-windows.ps1'))) { throw '此 GitHub 版本尚不支持一键安装' }
   New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
   if (-not $OldMarker) {
@@ -148,7 +148,7 @@ try {
   } elseif (-not $OldMarker -or -not $OldMarker.complete -or -not (Test-Path -LiteralPath (Join-Path $InstallRoot 'node_modules'))) {
     $ConfigPath = Join-Path $InstallRoot 'config.json'
     if (-not (Test-Path -LiteralPath $ConfigPath)) {
-      $Config = Get-Content -Raw -LiteralPath (Join-Path $InstallRoot 'config.example.json') | ConvertFrom-Json
+      $Config = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $InstallRoot 'config.example.json') | ConvertFrom-Json
       $Config.port = Find-FreePort $Port
       $Config.publicOrigin = 'http://127.0.0.1:' + $Config.port
       [IO.File]::WriteAllText($ConfigPath,($Config | ConvertTo-Json -Depth 10),$Utf8)

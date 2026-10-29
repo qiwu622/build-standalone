@@ -7,8 +7,8 @@ $TargetRoot = if ($TargetDirectory) { (Resolve-Path -LiteralPath $TargetDirector
 $SourceRoot = (Resolve-Path -LiteralPath $ReleaseDirectory).Path
 if ($SourceRoot -eq $TargetRoot) { throw '新版本必须先解压到另一个目录' }
 if ($SourceRoot.StartsWith($TargetRoot + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or $TargetRoot.StartsWith($SourceRoot + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw '新旧安装目录不能相互嵌套' }
-if ((Get-Content -Raw -LiteralPath (Join-Path $SourceRoot 'package.json') | ConvertFrom-Json).name -ne 'build-standalone') { throw '不是 Build 独立版发布目录' }
-if ((Get-Content -Raw -LiteralPath (Join-Path $TargetRoot 'package.json') | ConvertFrom-Json).name -ne 'build-standalone') { throw '目标不是 Build 独立版安装目录' }
+if ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $SourceRoot 'package.json') | ConvertFrom-Json).name -ne 'build-standalone') { throw '不是 Build 独立版发布目录' }
+if ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $TargetRoot 'package.json') | ConvertFrom-Json).name -ne 'build-standalone') { throw '目标不是 Build 独立版安装目录' }
 $PreviousLocation = Get-Location
 try {
   Set-Location -LiteralPath $TargetRoot
