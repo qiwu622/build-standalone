@@ -1,0 +1,10 @@
+{
+  "display_name": "Build 独立版 · 酒馆分流",
+  "loading_order": 900,
+  "requires": [],
+  "optional": [],
+  "js": "extensions/build-standalone-adapter/index.js",
+  "author": "Build Standalone",
+  "version": "0.3.0",
+  "description": "直接读取当前启用预设；预设进入 Build 输入框，背景和历史进入项目文件。"
+}

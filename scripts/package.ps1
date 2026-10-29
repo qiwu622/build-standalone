@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $DestinationPath = [IO.Path]::GetFullPath($Destination)
 if (Test-Path -LiteralPath $DestinationPath) { throw '发布文件已存在，请使用新文件名' }
-$Allowed = @('src','public','scripts','tests','extensions','docs','licenses','package.json','package-lock.json','config.example.json','README.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','.gitignore')
+$Allowed = @('src','public','scripts','tests','extensions','docs','licenses','package.json','package-lock.json','manifest.json','config.example.json','README.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','.gitignore')
 $Items = foreach ($Name in $Allowed) {
   $Path = Join-Path $ProjectRoot $Name
   if (-not (Test-Path -LiteralPath $Path)) { throw ('缺少发布文件：' + $Name) }

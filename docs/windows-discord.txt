@@ -1,0 +1,163 @@
+【第 1 条：复制这一条发到 Discord】
+
+**🚀 Build Standalone 零基础部署教程｜1/4：安装项目**
+
+**适用范围：Windows 10 / 11 电脑。**
+本教程把 Build 项目装在你自己的电脑上，再接入同一台电脑上的酒馆。
+
+**开始前准备好：**
+- Chrome 或 Edge 浏览器。
+- 一个已经能正常使用 Google AI Studio Build、且有目标模型权限的 Google 账号。
+- 已经能打开的酒馆。还没装酒馆，先看官方 Windows 教程：https://docs.sillytavern.app/installation/windows/
+- 这台电脑需要能访问 GitHub、Google AI Studio、nodejs.org 和 npm。
+
+**① 打开 PowerShell**
+按住键盘左下角的 **Win 键**，再按 **R**。
+在弹出的小窗口输入 `powershell`，按回车。
+会出现一个蓝色或黑色窗口，这是正常的，不用管理员权限。
+
+**② 复制下面第一行，粘贴进窗口，按回车**
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/qiwu622/build-standalone/main/scripts/bootstrap.ps1 -OutFile "$env:TEMP\build-setup.ps1"
+```
+
+等它执行完，再复制下面第二行，粘贴并按回车：
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\build-setup.ps1"
+```
+
+**③ 等安装完成**
+它会自己下载项目、准备运行环境并启动。你不用手动下载项目压缩包，也不用提前装 Node.js。
+窗口里不断出现文字是正常的，安装期间先别关闭。
+
+成功后会打开 **“Build 独立服务”管理页**，桌面也会出现 **“Build Standalone”快捷方式**。
+
+> 管理页地址通常是 `http://127.0.0.1:8787`，也可能是别的数字。**以安装完成后实际打开的地址为准，不要照抄别人的端口。**
+> 后面的操作都在同一台电脑完成。这里的 `127.0.0.1` 不能直接拿到另一台电脑或手机上用。
+
+【第 2 条：复制这一条发到 Discord】
+
+**🔑 Build Standalone 零基础部署教程｜2/4：连接 Google 账号**
+
+**④ 找到管理密钥**
+再次按 **Win + R**，把下面整行粘贴进去，按回车：
+```text
+notepad "%LOCALAPPDATA%\BuildStandalone\data\credentials.json"
+```
+记事本会打开一个文件，里面有两个名字：
+- **adminKey**：用来登录 Build 管理页。
+- **apiKey**：稍后填到酒馆里。
+
+复制 `adminKey` 后面引号里的整段内容，填到管理页的 **“管理密钥”**，点 **“连接”**。
+**只复制引号中间的内容，不带引号、逗号，也不复制 adminKey 这几个字。**
+记事本先留着，后面还要用 `apiKey`。这两个密钥不要发给别人。
+
+**⑤ 安装浏览器连接器，只需装一次**
+用你平时登录 Google 的 Chrome 或 Edge：
+- Chrome：在浏览器最上面的地址栏输入 `chrome://extensions`，按回车。
+- Edge：在地址栏输入 `edge://extensions`，按回车。
+
+打开 **“开发者模式”**，点击 **“加载已解压的扩展程序”**（Edge 可能叫“加载解压缩的扩展”）。
+在弹出窗口上方的地址栏，粘贴下面路径并按回车：
+```text
+%LOCALAPPDATA%\BuildStandalone\extensions\build-browser-bridge
+```
+然后点 **“选择文件夹”**。不要选外面的 BuildStandalone 文件夹。
+
+**⑥ 登录 Google 并自动接入**
+回到 **同一个 Chrome / Edge** 里的 Build 管理页，刷新网页，重新填写 `adminKey`。
+如果管理页原来开在其他浏览器，把它的完整地址复制到这个浏览器打开。
+
+点击 **“登录并自动接入”**，在 Google 页面选择账号，完成登录和必要的验证。
+项目会自动创建或复用专用 Build 项目，然后登记账号。**首次创建可能使用一次 Google 模型额度。**
+
+回到管理页，账号显示 **“扩展在线”** 才算接好了。只看到 Google 已登录，还不算完成。
+
+> **浏览器和自动打开的 Build 项目标签页要一直留着。** 可以最小化，别关闭，也别点调试提示条里的“取消”。调用时不要手动编辑那个项目。
+
+【第 3 条：复制这一条发到 Discord】
+
+**🍺 Build Standalone 零基础部署教程｜3/4：给酒馆安装扩展并填连接**
+
+前面安装的是 **浏览器连接器**；这一步安装的是 **酒馆扩展**。它们是两个不同的东西，都要装。
+
+**⑦ 用 GitHub 链接安装酒馆扩展**
+打开酒馆，点击顶部的 **“扩展”**，再点 **“安装扩展 / Install extension”**。
+把下面这个链接完整粘贴进去：
+```text
+https://github.com/qiwu622/build-standalone
+```
+分支不用填；如果让你选择安装范围，选 **“仅当前用户”**。点击安装，等出现成功提示。
+
+然后在酒馆页面按 **Ctrl + F5** 刷新。
+打开酒馆的扩展设置，找到 **“Build 独立版 · 酒馆分流”**，确认 **“直接读取当前启用预设”** 已勾选。教程对应版本是 **0.3.0**，更新版也可以。
+
+> 已经手动装过旧版的：先在酒馆的 **“管理扩展”** 中禁用旧版并刷新，再按上面链接安装。最后只启用一份 Build 酒馆扩展。
+
+**⑧ 填酒馆 API 连接**
+点击酒馆顶部的 **插头图标 / API 连接**，按下面选择：
+- API 类型：**聊天补全 / Chat Completion**。
+- 来源：**自定义 / Custom（兼容 OpenAI）**。
+- API 地址：复制 Build 管理页 **“接口接入”** 里显示的 **Base URL**。
+- API 密钥：填记事本文件里的 **apiKey**，不是 adminKey。
+
+API 地址长得像这样，**这只是例子，端口用你自己的**：
+```text
+http://127.0.0.1:8787/v1
+```
+管理页复制出来已经有 `/v1`，不要再加一次，也不要自己加 `/chat/completions`。
+
+模型名称填写：
+```text
+build-st/gemini-4-argon-high
+```
+然后点 **“连接 / Connect”**。如果找不到模型下拉列表，直接在自定义模型名称框粘贴上面的完整名字。
+
+**“自定义请求正文”和“排除正文参数”保持空白。**
+预设照常在酒馆里选择，不用导出，不用上传预设文件，也不用自己加标签。
+
+【第 4 条：复制这一条发到 Discord】
+
+**✅ Build Standalone 零基础部署教程｜4/4：开始聊天、下次启动和常见问题**
+
+**⑨ 发一句话验证**
+在酒馆新开一段对话，发送：
+```text
+这是连接测试，请只回复：你好。
+```
+这会真实调用 Google，并使用对应模型额度。
+
+**先等，不要连续点发送。** 本项目目前是生成完整答案后一次显示，不会边生成边冒字；本机短回复实测约 1～2 分钟，具体时间会变化。
+能看到正常回复，就完成了。
+
+> `build-st/` 模型请用正常发送聊天来测试。酒馆的 **“测试连接 / Test Connection”** 不会读取预设，不适合验证这个模式。
+
+**以后每次怎么打开？**
+1. 双击桌面的 **Build Standalone**。
+2. 用装好连接器的 Chrome / Edge 打开管理页，填写 `adminKey`。
+3. 如果账号没在线，点一次 **“登录并自动接入”**。
+4. 等显示“扩展在线”，再打开酒馆聊天。
+5. 使用期间保持电脑、服务、浏览器和 Build 标签页运行。电脑睡眠或关机后不能继续调用。
+
+**想换思考强度？只改模型名字最后一段：**
+```text
+build-st/gemini-4-argon-low
+build-st/gemini-4-argon-medium
+build-st/gemini-4-argon-high
+```
+分别是低、中、高。不会因为换名字就增加 Google 额度。
+
+**出问题先看这里：**
+- **管理页鉴权失败**：用 `adminKey`；酒馆用 `apiKey`。检查有没有多复制空格或引号。
+- **没检测到连接器 / 账号离线**：确认连接器装在当前浏览器，刷新管理页，再点自动接入。
+- **GitHub 安装失败 / 找不到 git**：酒馆运行的电脑需要 Git。没有就先安装 https://gitforwindows.org/ ，然后把酒馆关掉再打开。下载超时则先检查 GitHub 网络。
+- **找不到 manifest.json**：确认填的是第 3 条里的完整仓库链接，不是某个文件或子目录的网址。
+- **提示需要启用酒馆扩展 / 仍显示旧版**：按 Ctrl + F5，检查扩展已启用，并且只加载了一份。
+- **管理页打不开**：先双击桌面快捷方式，使用它显示的实际地址。
+
+**怎么更新？**
+先等聊天结束，再重做第 1 条里的两行安装命令。它会更新项目，保留账号、密钥和配置。
+酒馆扩展在酒馆的扩展管理里点更新，再 Ctrl + F5。
+浏览器连接器在 Chrome / Edge 扩展管理页点重新加载，再回管理页自动接入。
+
+项目主页：https://github.com/qiwu622/build-standalone

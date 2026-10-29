@@ -17,7 +17,7 @@ try {
   # Back up source/config only. A consistent private data backup is a separate command.
   $BackupRoot = Join-Path $TargetRoot ('work\upgrade-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
   New-Item -ItemType Directory -Path $BackupRoot | Out-Null
-  $Allowed = @('src','public','scripts','tests','extensions','docs','licenses','package.json','package-lock.json','config.example.json','README.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','.gitignore')
+  $Allowed = @('src','public','scripts','tests','extensions','docs','licenses','package.json','package-lock.json','manifest.json','config.example.json','README.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','.gitignore')
   foreach ($Name in $Allowed) {
     $Current = Join-Path $TargetRoot $Name
     if (Test-Path -LiteralPath $Current) { Copy-Item -LiteralPath $Current -Destination $BackupRoot -Recurse }

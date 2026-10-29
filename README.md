@@ -76,6 +76,8 @@ Invoke-RestMethod http://127.0.0.1:8787/v1/models -Headers $Headers
 
 模型和思考档位由 Google 网页原生设置切换，并核对实际请求元数据；不是靠提示词模拟。酒馆启用预设进入输入框，世界书、角色资料和历史进入项目文件，见 [酒馆适配](docs/sillytavern.md)。原有酒馆预设不会因本次升级改变。
 
+酒馆扩展可直接通过“扩展”→“安装扩展”导入 `https://github.com/qiwu622/build-standalone`，无需手动复制目录。已有手动安装版本先禁用旧版并刷新，避免加载两份。可直接复制发布的 [Discord 零基础教程](docs/windows-discord.txt)。
+
 只接受文本；工具、图片和强制 JSON 等未实现能力明确拒绝。客户端附带的 `temperature`、`top_p`、`top_k`、惩罚系数、`stop`、`seed`、`logprobs`、`logit_bias`、`prediction` 等可选生成参数自动忽略，使用 Build 原生默认设置，无需在客户端逐项关闭。`reasoning_effort` 也忽略，思考强度仍由模型名后缀决定。该兼容处理同时适用于普通模型、`build/` 和 `build-st/` 模型，以及流式和非流式请求。每次 API 请求创建新聊天，仅使用本次传入的系统与历史。`max_tokens` / `max_completion_tokens` 是输出长度提示，不保证硬截断；token 用量未知，`usage: null`。
 
 `stream: true` 等完整答案结束后发出正文事件、stop、`[DONE]`；响应头 `x-build-streaming: buffered`。请求在有界串行队列执行，等待也计入超时。取消、断连、账号/模型核对失败或清理失败都会报错，不能当作成功回复。

@@ -19,7 +19,7 @@ node scripts/control.mjs stop
 umask 077
 backup_root="$project_root/work/upgrade-$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p -- "$backup_root"
-allowed=(src public scripts tests extensions docs licenses package.json package-lock.json config.example.json README.md CHANGELOG.md LICENSE THIRD_PARTY_NOTICES.md .gitignore)
+allowed=(src public scripts tests extensions docs licenses package.json package-lock.json manifest.json config.example.json README.md CHANGELOG.md LICENSE THIRD_PARTY_NOTICES.md .gitignore)
 for name in "${allowed[@]}"; do
   if [ -e "$project_root/$name" ]; then cp -a -- "$project_root/$name" "$backup_root/"; fi
 done
