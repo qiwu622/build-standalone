@@ -14,10 +14,14 @@ export class ExtensionBridge {
     Object.assign(this,{store,pool,now,commandTimeout,pollTimeout});this.sessions=new Map();this.pair=null;
     this.sweep=setInterval(()=>{for(const s of this.sessions.values())if(this.now()-s.lastSeen>65000)this.disconnect(s);},10000);this.sweep.unref?.();
   }
-  pairing(){this.pair={code:randomBytes(24).toString('hex'),expiresAt:this.now()+300000};return {...this.pair};}
+  pairing({automatic=false}={}){this.pair={code:randomBytes(24).toString('hex'),expiresAt:this.now()+(automatic?1200000:300000),automatic};return {...this.pair};}
+  authorize(code){
+    if(!this.pair||this.pair.expiresAt<this.now()||!equal(this.pair.code,code))throw error('配对码无效或已过期',401,'pairing_invalid');
+    return {expiresAt:this.pair.expiresAt,allowCreate:this.pair.automatic===true,projects:this.store.accounts.map(a=>({email:a.email,url:a.appURL}))};
+  }
   authenticate(token){const session=[...this.sessions.values()].find(s=>equal(s.token,token));if(!session)throw error('扩展连接已失效，请重新配对',401,'bridge_unauthorized');return session;}
   async connect({code,identity}){
-    if(!this.pair||this.pair.expiresAt<this.now()||!equal(this.pair.code,code))throw error('配对码无效或已过期',401,'pairing_invalid');
+    this.authorize(code);
     const authUser=String(identity?.authUser??'0');
     const appURL=/^\d{1,2}$/.test(authUser)&&buildAppForAccount(identity?.url,authUser);
     if(!identity?.ready||!appURL||typeof identity.email!=='string'||identity.email.length>254||!/^\S+@[^\s@]+\.[^\s@]+$/.test(identity.email))throw error('请先登录 Google 并打开有聊天输入框的专用 Build 项目',409,'project_not_ready');

@@ -6,12 +6,14 @@
 <div id="message" role="status" aria-live="polite"></div>
 <div id="dashboard" hidden>
 <section class="metrics"><div><span>执行状态</span><strong id="busy">—</strong></div><div><span>排队请求</span><strong id="queued">0</strong></div><div><span>返回方式</span><strong>完成后返回</strong></div><div><span>Google 真实验收</span><strong>需独立验收</strong></div></section>
-<section><div class="section-top"><h2>Google 账号</h2><div class="row"><button id="refresh" class="secondary">刷新</button><button id="pair-browser">生成配对码</button></div></div>
-<p>在你常用的 Chrome／Edge 正常登录 Google，再打开一个专用于本服务的 Build 项目。此服务不会打开新的登录浏览器。</p>
-<ol><li>浏览器扩展管理页开启开发者模式，选择“加载解压缩的扩展”，加载本安装目录中的 <code>extensions/build-browser-bridge</code>。</li><li>打开专用 Build 项目，等待英文聊天输入框出现。首次创建项目可能使用 Google 额度。</li><li>点击“生成配对码”，在 Build 标签页打开“Build 本机连接器”扩展，填写下面的本机服务地址和配对码，点击连接。</li></ol>
+<section><div class="section-top"><h2>Google 账号</h2><div class="row"><button id="refresh" class="secondary">刷新</button><button id="auto-connect" disabled>登录并自动接入</button></div></div>
+<p>点击后在当前常用浏览器打开 Build。你完成 Google 登录后，自动新建专用项目、接入扩展并登记账号；再次接入会复用已记住的项目。首次创建可能消耗一次模型额度。</p>
+<p id="extension-status" class="hint">正在检测本机连接器…</p><div id="onboarding-status" role="status"></div><button id="cancel-onboarding" class="secondary" hidden>取消接入</button>
+<details><summary>首次安装扩展／手动连接</summary>
+<ol><li>在常用 Chrome／Edge 的扩展管理页开启开发者模式，选择“加载解压缩的扩展”，加载本安装目录中的 <code>extensions/build-browser-bridge</code>。首次安装需要你授权；已经安装旧版时点击扩展的重新加载。</li><li>在同一个浏览器打开本管理页并刷新，然后点击“登录并自动接入”。以后无需复制配对码，也无需手动创建项目。</li><li>已有项目需要手动接入时，可在其标签页打开扩展，使用下面的手动配对码。</li></ol><button id="pair-browser" class="secondary">生成手动配对码</button>
 <p>本机服务地址：<code id="bridge-url"></code></p>
 <div id="pairing" hidden><p>一次性配对码（5 分钟有效；连接成功后自动导入账号）：</p><code id="pair-code"></code><p id="pair-expiry" class="hint"></p></div>
-<p class="hint">调用期间保持浏览器和专用标签页打开，不要同时手动编辑项目。扩展会显示浏览器的调试提示，仅连接你选中的标签页。多账号可逐个配对；关闭浏览器或重启服务后重新配对。Google 登录状态留在你原来的浏览器中。此连接器目前只连接同一电脑的服务。</p>
+</details><p class="hint">调用期间保持浏览器和专用标签页打开，不要同时手动编辑项目。扩展只在登录完成后连接 Build，Google 密码和验证码由你输入。关闭浏览器或重启服务后再次点击自动接入，复用已登记的项目。取消接入不会删除已创建项目或撤销已提交的初始化请求。</p>
 <div id="accounts"></div><p id="quota-note" class="hint"></p></section>
 <section><h2>接口接入</h2><p>Base URL：<code id="base-url"></code></p><p>支持 <code>/v1/models</code> 与 <code>/v1/chat/completions</code>，纯文本输入。示例模型：<code>gemini-4-argon-low</code>、<code>gemini-3.8-flash-medium</code>；无后缀固定 high。</p><p class="hint">SSE 等待完整答案后一次返回正文，响应头标记 <code>x-build-streaming: buffered</code>。长历史文件传入不会增加模型上下文上限，token 使用量未知。</p></section>
 <section><h2>最近调用</h2><p class="hint">仅记录时间、模型、阶段、状态码等元数据，不记录提示词、回答、密钥或 Cookie。</p><div class="table-wrap"><table><thead><tr><th>时间</th><th>模型</th><th>阶段 / 事件</th><th>状态</th><th>耗时</th></tr></thead><tbody id="logs"></tbody></table></div></section>

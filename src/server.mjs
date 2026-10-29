@@ -51,6 +51,7 @@ export function createService({config,credentials,executor,store,pool,browsers,l
           (req.headers.origin&&!/^chrome-extension:\/\/[a-p]{32}$/.test(req.headers.origin)))throw error('浏览器扩展仅允许本机连接',403,'bridge_origin_denied');
         if(demo||!browsers?.exchange)throw error('此实例不支持扩展连接',409,'bridge_unavailable');
         if(req.method!=='POST')throw error('扩展接口需要 POST',405);
+        if(path==='/bridge/authorize') {const body=await readBody(req,1024);return json(res,200,browsers.authorize(body.code));}
         if(path==='/bridge/connect') {
           const body=await readBody(req,4096);
           return json(res,200,await adminOperation(()=>browsers.connect(body)));
@@ -90,6 +91,10 @@ export function createService({config,credentials,executor,store,pool,browsers,l
       }
       if(req.method==='GET'&&path==='/admin/state')return json(res,200,{instanceId,mode:demo?'demo':'live',busy:scheduler.busy||adminBusy,queued:scheduler.queue.length,accounts:store.accounts,pool:pool.snapshot(),login:browsers?.login?{id:browsers.login.id,startedAt:browsers.login.startedAt}:null,connectionMode:browsers?.pairing?'extension':'legacy',connections:browsers?.snapshot?.()||[],streaming:'buffered',upstreamVerified:false});
       if(req.method==='GET'&&path==='/admin/logs')return json(res,200,{records:await log.recent()});
+      if(req.method==='POST'&&path==='/admin/bridge/automatic') {
+        await readBody(req,1024);if(demo||!browsers?.pairing)throw error('此实例不支持扩展接入',409);
+        return json(res,200,await adminOperation(()=>browsers.pairing({automatic:true})));
+      }
       if(req.method==='POST'&&path==='/admin/bridge/pairing') {
         await readBody(req,1024);if(demo||!browsers?.pairing)throw error('此实例不支持扩展配对',409);
         return json(res,200,await adminOperation(()=>browsers.pairing()));

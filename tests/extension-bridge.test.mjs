@@ -65,6 +65,10 @@ test('real local HTTP bridge pairs a simulated normal-browser tab and returns AP
   const post=(path,payload,key=f.credentials.apiKey,extra={})=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key,...extra},body:JSON.stringify(payload)});
   assert.equal((await post('/admin/login/start',{},f.credentials.adminKey)).status,410);
   assert.equal((await post('/admin/bridge/pairing',{},f.credentials.apiKey)).status,401);
+  assert.equal((await post('/admin/bridge/automatic',{},f.credentials.apiKey)).status,401);
+  const automatic=await(await post('/admin/bridge/automatic',{},f.credentials.adminKey)).json();
+  const authorized=await(await post('/bridge/authorize',{code:automatic.code},'')).json();assert.equal(authorized.allowCreate,true);
+  assert.equal((await post('/bridge/authorize',{code:automatic.code},'',{Origin:'https://evil.invalid'})).status,403);
   const pair=await(await post('/admin/bridge/pairing',{},f.credentials.adminKey)).json();
   assert.equal((await post('/bridge/connect',{code:pair.code,identity:identity()},'',{Origin:'https://evil.invalid'})).status,403);
   const fakeChrome={tabs:{get:async()=>({url:identity(1).url})},debugger:{attach:async()=>commands.push('attach'),detach:async()=>commands.push('detach'),sendCommand:async(_target,method,params)=>{
