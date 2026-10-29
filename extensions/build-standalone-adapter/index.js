@@ -1,21 +1,16 @@
 import {getContext} from '/scripts/extensions.js';
 import {oai_settings,promptManager,setOpenAIMessages} from '/scripts/openai.js';
-import {isBuildConnection,createSnapshotStore,createTagger,hookPromptManager,captureSegments,prepareOutgoing,applyOutgoing,errorEnvelope} from './transport.js?v=0.2.2';
+import {isBuildConnection,createTagger,hookPromptManager,readPresetSegments,prepareOutgoing,applyOutgoing,errorEnvelope} from './transport.js?v=0.3.0';
 
 const key='build_standalone_adapter';
-// A UI token-count preparation or another request must not overwrite the
-// pending chat. Keep a small, short-lived cache keyed by exact text fields.
-const snapshots=createSnapshotStore();
 const tagger=createTagger(Array.from(crypto.getRandomValues(new Uint8Array(12)),x=>x.toString(16).padStart(2,'0')).join(''));
-let hooked=null,statusElement;
+let hooked=null,statusElement,generationType='normal';
 const context=()=>getContext();
 const settings=()=>context().extensionSettings[key]??={enabled:true};
 const active=()=>settings().enabled&&isBuildConnection({chat_completion_source:oai_settings.chat_completion_source,model:oai_settings.chat_completion_source==='openai'?oai_settings.openai_model:oai_settings.custom_model,reverse_proxy:oai_settings.reverse_proxy});
 const messages={
- system_merge_enabled:'请关闭“合并系统消息（Squash system messages）”，重新生成后再试。',
- metadata_missing:'没有采集到与本次消息对应的来源记录。请先刷新酒馆后正常发送聊天；“测试连接”请使用普通 gemini 模型。',
- metadata_mismatch:'提示词来源与最终消息不一致，已阻止混合上传。请检查修改提示词的其他扩展。',
- metadata_changed:'本次发送的正文或消息顺序与来源记录不一致，已停止分流。请刷新酒馆后重试。',
+ preset_not_ready:'尚未读取到本次酒馆预设。请刷新酒馆后发送聊天；“测试连接”请使用普通 gemini 模型。',
+ preset_read_failed:'读取本次预设失败，请查看扩展控制台中的错误代码。',
  text_only:'目前仅支持纯文本和单次生成；请关闭工具、图片、JSON schema 与多候选回复。',
  custom_body_conflict:'请清空此连接的“自定义请求正文”和“排除正文参数”；扩展需要按请求设置它们。',
  inline_budget_exceeded:'输入框内容估算超过 45000 token。预设没有被截断或移入文件，请缩短预设。',
@@ -29,21 +24,7 @@ function status(text,bad=false){if(statusElement){statusElement.textContent=text
 function ensureHook(){
  if(promptManager&&hooked!==promptManager){hookPromptManager(promptManager,tagger,active);hooked=promptManager;}
 }
-function capture(event){
- if(event.dryRun||!active())return;
- try{
-  ensureHook();
-  const latest=setOpenAIMessages(context().chat||[]).find(m=>m.role==='user')?.content;
-  const segments=captureSegments(event.chat,promptManager?.messages,oai_settings,tagger,{latestUserText:latest});
-  snapshots.put(event.chat,{segments});
- }catch(e){console.info('[Build split diagnostic]',JSON.stringify({code:e.code,details:e.details}));try{snapshots.put(event.chat,{error:messages[e.code]?e.code:'metadata_mismatch'});}catch{/* unsupported non-text request is rejected at send */}}
-}
-function captureFinal(data){
- // This event runs after ST has constructed the final request prompt, before
- // sendOpenAIRequest clones it. Recheck against Prompt Manager's source tree,
- // so macro expansion inside intact boundaries retains its original source.
- if(Array.isArray(data.prompt)&&active())capture({chat:data.prompt,dryRun:false});
-}
+function start(type,_options,dryRun){ensureHook();if(!dryRun)generationType=['normal','regenerate','swipe','continue','quiet','impersonate'].includes(type)?type:'normal';}
 async function send(data){
  if(!isBuildConnection(data)){
   // A user can switch connections during prompt preparation. Remove our own
@@ -54,17 +35,17 @@ async function send(data){
  let envelope;
  try{
   if(!settings().enabled)throw {code:'adapter_disabled'};
-  const snapshot=snapshots.take(data.messages);
-  if(!snapshot)throw {code:'metadata_missing'};
-  if(snapshot.error)throw {code:snapshot.error};
-  const inline=snapshot?.segments?.filter(s=>s.placement==='inline').map(s=>s.text).join('\n')||'';
+  const latest=setOpenAIMessages(context().chat||[]).find(m=>m.role==='user')?.content;
+  const prepared={segments:readPresetSegments(data.messages,tagger,{latestUserText:latest}),generationType};
+  const inline=prepared.segments?.filter(s=>s.placement==='inline').map(s=>s.text).join('\n')||'';
   // ST's tokenizer is an estimate, not Google's authoritative token counter.
   const tokens=await context().getTokenCountAsync(inline);
-  envelope=prepareOutgoing(data,snapshot,{inlineTokens:tokens,tokenBudget:45000});
-  const files=snapshot.segments.filter(s=>s.placement==='file'),presets=snapshot.segments.filter(s=>s.placement==='inline');
-  status(`分流已完成：输入框 ${presets.length} 段 / ${inline.length} 字符（估算 ${tokens} token）；文件 ${files.length} 段 / ${files.reduce((n,s)=>n+s.text.length,0)} 字符。`);
+  envelope=prepareOutgoing(data,prepared,{inlineTokens:tokens,tokenBudget:45000});
+  const files=prepared.segments.filter(s=>s.placement==='file'),presets=prepared.segments.filter(s=>s.placement==='inline');
+  status(`已直接读取启用预设：输入框 ${presets.length} 段 / ${inline.length} 字符（估算 ${tokens} token）；历史和背景文件 ${files.length} 段 / ${files.reduce((n,s)=>n+s.text.length,0)} 字符。`);
  }catch(e){
-  const code=messages[e.code]?e.code:'metadata_mismatch';envelope=errorEnvelope(code);
+  const code=messages[e.code]?e.code:'preset_read_failed';envelope=errorEnvelope(code);
+  console.info('[Build preset diagnostic]',JSON.stringify({code:e.code||'preset_read_failed'}));
   const message=messages[code];status(message,true);globalThis.toastr?.error(message,'Build 酒馆适配');
  }
  // ST's event emitter catches thrown errors, so a rejection envelope is sent
@@ -77,15 +58,13 @@ function mount(){
  const host=document.querySelector('#extensions_settings2')||document.querySelector('#extensions_settings');
  if(!host||document.getElementById('build-standalone-adapter-settings'))return;
  const panel=document.createElement('div');panel.id='build-standalone-adapter-settings';panel.className='inline-drawer';
- panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>启用预设 / 背景分流</label><p>版本 0.2.2。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>需关闭合并系统消息；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
+ panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>直接读取当前启用预设</label><p>版本 0.3.0。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>允许合并系统消息和后期提示词修改；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
  host.append(panel);statusElement=panel.querySelector('[data-status]');
  const enabled=panel.querySelector('[data-enable]');enabled.checked=settings().enabled;
  enabled.addEventListener('change',()=>{settings().enabled=enabled.checked;context().saveSettingsDebounced();status('设置已保存。');});
 }
 const ctx=context();
-ctx.eventSource.on(ctx.eventTypes.GENERATION_STARTED,ensureHook);
-ctx.eventSource.makeLast(ctx.eventTypes.CHAT_COMPLETION_PROMPT_READY,capture);
-ctx.eventSource.makeLast(ctx.eventTypes.GENERATE_AFTER_DATA,captureFinal);
+ctx.eventSource.on(ctx.eventTypes.GENERATION_STARTED,start);
 ctx.eventSource.makeLast(ctx.eventTypes.CHAT_COMPLETION_SETTINGS_READY,send);
 ctx.eventSource.on(ctx.eventTypes.APP_READY,mount);
 mount();
