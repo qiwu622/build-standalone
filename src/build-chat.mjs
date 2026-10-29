@@ -2,6 +2,7 @@
 import {makeFileContext,unwrapFileReply,fileContextThreshold} from './build-file-context.mjs';
 import {buildModels,resolveBuildModel,configureBuildThinking,readBuildThinking} from './build-thinking.mjs';
 import {AppError,isContentRefusal, safeFailure} from './errors.mjs';
+import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
 export {buildModels} from './build-thinking.mjs';
 
 const failure = (message, status = 502) => new AppError(message,status,'build_execution_failed');
@@ -86,7 +87,7 @@ export const snapshotScript = `(() => {
         ready: !!document.querySelector(${JSON.stringify(composerSelector('Make changes, add new features, ask for anything'))}),
         initializing: !!document.querySelector(${JSON.stringify(composerSelector('Describe an app and let Gemini do the rest'))}),
         canSend: !!send && !send.disabled && send.getAttribute('aria-disabled') !== 'true',
-        hasPlan: [...document.querySelectorAll('button[aria-label]')].some(e=>/Google (?:Account|账号|帐号)/i.test(e.getAttribute('aria-label')) && /PRO|ULTRA/.test(e.innerText)),
+        hasPlan: ${identityExpression}.hasPlan,
         url: location.href.split('?')[0] };
 })()`;
 
@@ -111,7 +112,7 @@ export class BuildChatWorker {
         return r.result?.value;
     }
     async context(send,sid,phase,request) {
-        const page=await this.evaluate(send,sid,`(() => { const labels=[...document.querySelectorAll('button[aria-label]')].map(e=>e.getAttribute('aria-label')).filter(s=>/Google (?:Account|账号|帐号)/i.test(s)).join(' ');return {path:location.pathname,authUser:/\\/u\\/(\\d+)\\//.exec(location.pathname)?.[1]||new URL(location.href).searchParams.get('authuser')||'0',email:/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/.exec(labels)?.[0]||null}; })()`);
+        const page=await this.evaluate(send,sid,identityExpression);
         const expected=this.pool?.roster.find(a=>a.id===this.accountId);
         if(!page?.email || !expected?.email || page.email.toLowerCase()!==expected.email.toLowerCase() || page.authUser!==(expected.auth_user||'0'))throw safeFailure('account_mismatch');
         await this.log('account_context',{reason:JSON.stringify({phase,path:page?.path,authUser:page?.authUser,expectedAuthUser:expected?.auth_user,identityMatches:page?.email&&expected?.email?page.email.toLowerCase()===expected.email.toLowerCase():null})},request);

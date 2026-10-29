@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Build 本机连接器",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "正常登录 Google 后，自动创建或复用专用 Build 项目并连接本机 Build Standalone。",
   "minimum_chrome_version": "118",
   "permissions": ["debugger", "activeTab", "storage"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "https://aistudio.google.com/*", "https://ai.studio/*"],
   "content_scripts": [
     {"matches":["http://127.0.0.1/*","http://localhost/*"],"js":["admin-connector.js"],"run_at":"document_idle"},
-    {"matches":["https://aistudio.google.com/*","https://ai.studio/*"],"js":["google-onboarding.js"],"run_at":"document_idle"}
+    {"matches":["https://aistudio.google.com/*","https://ai.studio/*"],"js":["page-reader.js","google-onboarding.js"],"run_at":"document_idle"}
   ],
   "background": {"service_worker": "background.js", "type": "module"},
   "action": {"default_popup": "popup.html", "default_title": "连接专用 Build 项目"}

@@ -73,7 +73,7 @@ test('real local HTTP bridge pairs a simulated normal-browser tab and returns AP
   assert.equal((await post('/bridge/connect',{code:pair.code,identity:identity()},'',{Origin:'https://evil.invalid'})).status,403);
   const fakeChrome={tabs:{get:async()=>({url:identity(1).url})},debugger:{attach:async()=>commands.push('attach'),detach:async()=>commands.push('detach'),sendCommand:async(_target,method,params)=>{
     commands.push(method);
-    if(params.expression===identityExpression||params.expression.includes('function identityScript'))return {result:{value:identity(1)}};
+    if(params.expression===identityExpression)return {result:{value:identity(1)}};
     if(params.expression==='SYNTHETIC_REPLY')return {result:{value:'LOCAL_BRIDGE_OK'}};
     throw new Error('unexpected synthetic command');
   }}};
@@ -89,7 +89,7 @@ test('real local HTTP bridge pairs a simulated normal-browser tab and returns AP
   const context=makeFileContext({system:'系统😀',messages:[{role:'user',content:'长历史世界书😀'.repeat(9000)}]});
   fakeChrome.debugger.sendCommand=async(_target,method,params)=>{
     commands.push(method);
-    if(params.expression.includes('function identityScript'))return {result:{value:identity(1)}};
+    if(params.expression===identityExpression)return {result:{value:identity(1)}};
     if(params.expression.includes('new DataTransfer')){
       const value=vm.runInNewContext(params.expression,{document:{querySelector:()=>node},File,Event,DataTransfer:class{constructor(){this.files=[];this.items={add:f=>{this.files.push(f);files.push(f);}};}}});return {result:{value}};
     }

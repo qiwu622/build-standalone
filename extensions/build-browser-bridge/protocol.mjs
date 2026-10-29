@@ -1,3 +1,5 @@
+import './page-reader.js';
+export const readBuildIdentity=globalThis.buildStandaloneReadIdentity;
 export function localBase(value){
   const u=new URL(value);
   if(u.protocol!=='http:'||!['127.0.0.1','localhost'].includes(u.hostname)||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw new Error('服务地址必须是本机 http://127.0.0.1:端口');
@@ -10,7 +12,7 @@ export function project(value){
   const authUser=pathUser||queryUser||'0';if(!/^\d{1,2}$/.test(authUser))throw new Error('账号索引无效');
   u.search='';u.hash='';u.searchParams.set('authuser',authUser);return {url:u.href,authUser};
 }
-export const identityExpression=`(() => {const labels=[...document.querySelectorAll('button[aria-label]')].map(e=>e.getAttribute('aria-label')).filter(x=>/Google (?:Account|账号|帐号)/i.test(x)).join(' ');return {url:location.href,email:/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/.exec(labels)?.[0]||null,ready:!!document.querySelector(':is(textarea,[contenteditable="true"],[contenteditable="plaintext-only"])[placeholder="Make changes, add new features, ask for anything"]')};})()`;
+export const identityExpression=`(${readBuildIdentity.toString()})()`;
 export const allowedCommands=new Set(['Runtime.evaluate','Input.insertText','Input.dispatchMouseEvent','Network.enable','Page.enable','Page.getFrameTree','Page.reload','Page.handleJavaScriptDialog']);
 // Forward only the model/thinking/account metadata needed by the executor.
 // Cookies, Authorization, prompt bodies and arbitrary browsing traffic stay out.

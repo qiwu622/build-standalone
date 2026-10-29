@@ -1,7 +1,7 @@
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {buildAppForAccount} from './build-chat.mjs';
 import {error,checkAbort,safeFailure} from './errors.mjs';
-import {identityScript} from './browser.mjs';
+import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
 
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);};
 const lost=()=>error('浏览器扩展已断开；请在常用浏览器的专用 Build 标签页重新连接',503,'extension_disconnected');
@@ -76,7 +76,7 @@ export class ExtensionBridge {
     if(session.busy)throw error('该浏览器标签页正在执行请求',409,'busy');session.busy=true;
     const send=this.sender(session);
     try{
-      const r=await send('Runtime.evaluate',{expression:`(${identityScript.toString()})()`,returnByValue:true});const identity=r.result?.value;
+      const r=await send('Runtime.evaluate',{expression:identityExpression,returnByValue:true});const identity=r.result?.value;
       if(!identity?.ready||identity.email?.toLowerCase()!==account.email.toLowerCase()||buildAppForAccount(identity.url,account.auth_user||'0')!==session.appURL)throw safeFailure('account_mismatch');
       checkAbort(signal);return await action(send);
     }finally{session.busy=false;session.listeners.clear();}

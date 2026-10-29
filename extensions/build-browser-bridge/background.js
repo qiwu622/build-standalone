@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
         await onboarding.pulse(sender.tab.id,message.state);return {};
       }
       const u=new URL(sender.url);if(u.pathname!=='/')throw new Error('请使用本机管理页');const base=localBase(u.origin);
-      if(message.action==='onboarding-probe')return {version:'0.4.0'};
+      if(message.action==='onboarding-probe')return {version:chrome.runtime.getManifest().version};
       if(message.action==='onboarding-start')return onboarding.start({base,code:message.code,adminTabId:sender.tab.id});
       if(message.action==='onboarding-status')return onboarding.status(base);
       if(message.action==='onboarding-cancel'){await onboarding.cancel(base);return {};}

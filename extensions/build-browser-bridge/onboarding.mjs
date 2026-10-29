@@ -29,10 +29,34 @@ export class Onboarding {
     if(!capability.allowCreate)throw new Error('请使用管理页的“登录并自动接入”');
     for(const [id,j] of Object.entries(this.jobs))if(j.base===base||j.expiresAt<this.now())delete this.jobs[id];
     const tab=await this.chrome.tabs.create({url:loginURL,active:true});
-    this.jobs[tab.id]={tabId:tab.id,adminTabId,base,code,expiresAt:capability.expiresAt,projects:capability.projects,stage:'login',created:false};
+    this.jobs[tab.id]={tabId:tab.id,adminTabId,base,code,startedAt:this.now(),expiresAt:capability.expiresAt,projects:capability.projects,stage:'login',created:false};
     await this.save();return this.status(base);
   }
-  async status(base){await this.ready;return {jobs:Object.values(this.jobs).filter(j=>j.base===base).map(j=>({tabId:j.tabId,stage:j.stage,email:j.email||null,message:j.error||j.notice||message[j.stage]||'等待 Build 页面就绪'}))};}
+  async status(base){
+    await this.ready;const jobs=[];let changed=false;
+    for(const job of Object.values(this.jobs).filter(j=>j.base===base)){
+      let notice=job.notice;
+      if(!['connected','error','cancelled'].includes(job.stage)){
+        if(job.expiresAt<=this.now()){
+          job.stage='error';job.error='接入凭据已过期，请重新开始；已创建的专用项目会保留';job.code='';changed=true;
+        }else{
+          try{
+            const tab=await this.chrome.tabs.get(job.tabId);
+            if(!tab)throw new Error('closed');
+            const elapsed=this.now()-(job.lastSeenAt||job.startedAt||job.expiresAt-1200000);
+            if(elapsed>15000&&!job.lastSeenAt){
+              let inBuild=false;try{googleURL(tab.url);inBuild=true;}catch{}
+              notice=inBuild?'已打开 Build，但尚未收到页面回报。重新加载扩展后，请刷新这个 Build 标签页；并确认扩展已获准在 AI Studio 运行。':'等待原接入标签页返回 Build。若你已在其他标签页登录，请回到自动打开的标签页刷新。';
+            }else if(job.lastSeenAt&&elapsed>30000){
+              notice='Build 页面回报已中断。请回到本次接入标签页并刷新；不要关闭它或取消扩展调试连接。';
+            }
+          }catch{job.stage='error';job.error='本次接入标签页已关闭，请重新开始';job.code='';changed=true;}
+        }
+      }
+      jobs.push({tabId:job.tabId,stage:job.stage,email:job.email||null,message:job.error||notice||message[job.stage]||'等待 Build 页面就绪'});
+    }
+    if(changed)await this.save();return {jobs};
+  }
   async cancel(base){await this.ready;for(const j of Object.values(this.jobs))if(j.base===base&&!['connected','error','cancelled'].includes(j.stage)){j.stage='cancelled';j.code='';}await this.save();}
   async remember(job,url){
     job.projectURL=project(url).url;
@@ -45,15 +69,26 @@ export class Onboarding {
     this.locks.add(tabId);
     try{
       const tab=await this.chrome.tabs.get(tabId);if(tab.url!==state.url)return;googleURL(tab.url);
-      if(!state.email)return;
+      job.lastSeenAt=this.now();
+      if(!['error','cancelled'].includes(job.stage)&&job.expiresAt<=this.now())throw new Error('登录接入已超时，请在管理页重新开始；不会重复自动创建项目');
+      if(state.observerError){job.notice='Build 页面识别脚本发生错误，请重新加载本机连接器并刷新这个 Build 标签页';await this.save();return;}
+      if(!state.email){
+        job.notice=state.accountAmbiguous?'页面出现多个账号标识，无法确认当前账号，请关闭账号切换菜单后重试':state.accountControlFound?'已看到 Google 账号控件，但未读取到当前邮箱；请检查右上角账号菜单并刷新 Build 页面':'Build 页面已打开，但尚未识别到 Google 账号控件；请确认页面已加载并完成登录或官方验证';
+        await this.save();return;
+      }
+      delete job.notice;
       if(job.email&&job.email.toLowerCase()!==state.email.toLowerCase())throw new Error('接入过程中 Google 账号发生变化，请重新开始');
       if(!job.email){job.email=state.email;await this.save();}
       if(['error','cancelled'].includes(job.stage)){
         if(job.created&&!job.projectURL&&state.ready){try{await this.remember(job,project(state.url).url);}catch{}}
         return;
       }
-      if(job.expiresAt<this.now())throw new Error('登录接入已超时，请在管理页重新开始；不会重复自动创建项目');
       if(job.stage==='login'){
+        // A local service restart invalidates its capability. Check again
+        // before any provisioning inference, rather than failing after it.
+        const capability=await this.client.post(job.base,'/bridge/authorize',{code:job.code});
+        if(['error','cancelled'].includes(job.stage))return;
+        if(!capability.allowCreate)throw new Error('自动接入凭据已失效，请重新开始');
         const local=await this.chrome.storage.local.get('dedicatedProjects');
         const saved=(local.dedicatedProjects||[]).find(p=>p.base===job.base&&p.email.toLowerCase()===job.email.toLowerCase())||job.projects.find(p=>p.email.toLowerCase()===job.email.toLowerCase());
         if(saved){job.projectURL=project(forAccount(saved.url,accountIndex(state.url))).url;job.stage='reuse';await this.save();await this.chrome.tabs.update(tabId,{url:forAccount(saved.url,accountIndex(state.url))});return;}
@@ -66,6 +101,7 @@ export class Onboarding {
           await this.provision(job);if(job.stage==='cancelled')return;job.stage='creating';await this.save();return;
         }
         if(state.ready)throw new Error('当前不是本次新建的专用项目，已停止以保护原项目');
+        job.notice='已识别 Google 账号，等待 Build 创建输入框。请保持当前标签页，检查是否有地区、验证或欢迎页面；界面需为英文。';await this.save();
         return;
       }
       if(job.stage==='initializing')throw new Error('项目创建步骤被中断，请检查刚才的 Build 标签页；不会自动重复提交');

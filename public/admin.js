@@ -13,7 +13,7 @@ function extension(action,data={}){
 }
 async function extensionState(){
   try{
-    await extension('probe');extensionReady=true;$('extension-status').textContent='已检测到本机连接器，登录后将自动创建或复用专用项目。';
+    const probe=await extension('probe');extensionReady=true;$('extension-status').textContent='已检测到本机连接器 '+(probe.version||'')+'，登录后将自动创建或复用专用项目。';
     const value=await extension('status');$('onboarding-status').replaceChildren();let active=false;
     for(const job of value.jobs||[]){$('onboarding-status').append(element('p',(job.email?job.email+' · ':'')+job.message));if(!['connected','error','cancelled'].includes(job.stage))active=true;}
     $('cancel-onboarding').hidden=!active;return active;
