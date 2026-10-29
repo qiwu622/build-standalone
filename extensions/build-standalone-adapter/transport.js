@@ -7,7 +7,7 @@ export function isBuildConnection(data){
 export const MAX_SEGMENTS=20000;
 const background=new Set(['worldInfoBefore','worldInfoAfter','charDescription','charPersonality','scenario','personaDescription','dialogueExamples','summary','authorsNote','vectorsMemory','vectorsDataBank','smartContext']);
 const controls=new Set(['main','nsfw','jailbreak','enhanceDefinitions','groupNudge','continueNudge','impersonate','quietPrompt','bias','newMainChat','newChat','emptyUserMessageReplacement']);
-const fail=code=>{throw Object.assign(new Error(code),{code});};
+const fail=(code,details)=>{throw Object.assign(new Error(code),{code,details});};
 export function presetSource(id,settings){
  if(background.has(id))return false;
  if(controls.has(id))return true;
@@ -45,6 +45,17 @@ export function createTagger(nonce){
   return output.length?output:[{...fallback,text:''}];
  }
  function strip(text){return typeof text==='string'?split(text,{}).map(x=>x.text).join(''):text;}
+ // Extensions resolve macros after Prompt Manager has prepared its copies.
+ // Text inside an intact boundary may change while its source stays the same.
+ // Keep every boundary, its order, and all unmarked text exact.
+ function shape(text){
+  split(text,{});const result=[];let offset=0,inside=false;
+  for(const match of text.matchAll(expression)){
+   if(!inside)result.push(text.slice(offset,match.index));
+   result.push([match[1],match[2]]);inside=match[2]==='BEGIN';offset=match.index+match[0].length;
+  }
+  result.push(text.slice(offset));return JSON.stringify(result);
+ }
  function mark(text,meta){
   if(!text)return text;
   const key=JSON.stringify(meta);let id=bySource.get(key);
@@ -54,7 +65,7 @@ export function createTagger(nonce){
   }
   return `${prefix}${id}:BEGIN]]${text}${prefix}${id}:END]]`;
  }
- return {split,strip,mark,prefix,get fault(){return fault;}};
+ return {split,strip,mark,shape,prefix,get fault(){return fault;}};
 }
 
 export function hookPromptManager(manager,tagger,active){
@@ -102,19 +113,34 @@ export function captureSegments(chat,root,settings,tagger,{latestUserText}={}){
  if(settings.squash_system_messages)fail('system_merge_enabled');
  const leaves=flattenMessages(root);
  const leafMessages=leaves.map(m=>JSON.stringify(textMessage(m)));
- const pieces=[];let nextLeaf=0;
+ const pieces=[],unmatched=[];let nextLeaf=0;
  for(let i=0;i<chat.length;i++){
   const sent=textMessage(chat[i]);
-  const matches=nextLeaf<leaves.length&&JSON.stringify(sent)===leafMessages[nextLeaf];
+  const expected=leaves[nextLeaf];
+  const sameIdentity=expected&&sent.role===expected.role&&(sent.name||'')===(expected.name||'');
+  // Some presets decorate existing chat turns after the prompt-ready event.
+  // Such text remains background regardless of its contents. Never allow this
+  // fallback to consume a preset or a turn containing an embedded preset.
+  const changedHistory=sameIdentity&&/^chatHistory-\d+$/.test(expected.identifier)&&
+   !sent.content.includes(tagger.prefix)&&!expected.content.includes(tagger.prefix);
+  const matches=nextLeaf<leaves.length&&(JSON.stringify(sent)===leafMessages[nextLeaf]||changedHistory||(
+   sent.role===expected.role&&(sent.name||'')===(expected.name||'')&&
+   sent.content.includes(tagger.prefix)&&expected.content.includes(tagger.prefix)&&
+   tagger.shape(sent.content)===tagger.shape(expected.content)));
   // Table/other context extensions can insert untagged messages after ST's
   // tree is built. Accept only insertions while preserving every tree leaf
-  // unchanged and in order. Changed/deleted/merged originals still fail.
-  if(!matches&&sent.content.includes(tagger.prefix))fail('metadata_mismatch');
+  // in order. Tagged text can expand within its boundary; plain history stays
+  // in files. Roles, names and outside-boundary edits on tagged messages fail.
+  if(!matches&&sent.content.includes(tagger.prefix)){
+   const a=sent.content,b=expected?.content||'';let offset=0;while(offset<Math.min(a.length,b.length)&&a[offset]===b[offset])offset++;
+   fail('metadata_mismatch',{stage:'tagged-leaf',message:i,leaf:nextLeaf,chatCount:chat.length,leafCount:leaves.length,source:expected?.identifier,role:sent.role,expectedRole:expected?.role,length:a.length,expectedLength:b.length,firstDifference:offset,unmatched:unmatched.slice(-4),sameText:a===b,sameName:sent.name===expected?.name});
+  }
+  if(!matches)unmatched.push({message:i,role:sent.role,length:sent.content.length,expectedRole:expected?.role,expectedLength:expected?.content?.length,source:expected?.identifier,sameTrimmed:sent.content.trim()===expected?.content?.trim()});
   const source=matches?(leaves[nextLeaf++].identifier||'context'):'extension-context';
   const fallback={source,placement:presetSource(source,settings)?'inline':'file'};
   tagger.split(sent.content,fallback).forEach((piece,part)=>pieces.push({message:i,part,role:sent.role,...(sent.name?{name:sent.name}:{}),...piece}));
  }
- if(nextLeaf!==leaves.length)fail('metadata_mismatch');
+ if(nextLeaf!==leaves.length)fail('metadata_mismatch',{stage:'unmatched-leaves',matched:nextLeaf,leafCount:leaves.length,chatCount:chat.length});
  // Promote a current user message only on an exact match. A depth-0 World Info
  // user injection must never be mistaken for the actual user's latest message.
  if(typeof latestUserText==='string'&&latestUserText){

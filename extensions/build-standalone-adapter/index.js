@@ -1,6 +1,6 @@
 import {getContext} from '/scripts/extensions.js';
 import {oai_settings,promptManager,setOpenAIMessages} from '/scripts/openai.js';
-import {isBuildConnection,createSnapshotStore,createTagger,hookPromptManager,captureSegments,prepareOutgoing,applyOutgoing,errorEnvelope} from './transport.js?v=0.2.1';
+import {isBuildConnection,createSnapshotStore,createTagger,hookPromptManager,captureSegments,prepareOutgoing,applyOutgoing,errorEnvelope} from './transport.js?v=0.2.2';
 
 const key='build_standalone_adapter';
 // A UI token-count preparation or another request must not overwrite the
@@ -36,12 +36,12 @@ function capture(event){
   const latest=setOpenAIMessages(context().chat||[]).find(m=>m.role==='user')?.content;
   const segments=captureSegments(event.chat,promptManager?.messages,oai_settings,tagger,{latestUserText:latest});
   snapshots.put(event.chat,{segments});
- }catch(e){try{snapshots.put(event.chat,{error:messages[e.code]?e.code:'metadata_mismatch'});}catch{/* unsupported non-text request is rejected at send */}}
+ }catch(e){console.info('[Build split diagnostic]',JSON.stringify({code:e.code,details:e.details}));try{snapshots.put(event.chat,{error:messages[e.code]?e.code:'metadata_mismatch'});}catch{/* unsupported non-text request is rejected at send */}}
 }
 function captureFinal(data){
  // This event runs after ST has constructed the final request prompt, before
  // sendOpenAIRequest clones it. Recheck against Prompt Manager's source tree,
- // so only unchanged originals and identifiable inserted background survive.
+ // so macro expansion inside intact boundaries retains its original source.
  if(Array.isArray(data.prompt)&&active())capture({chat:data.prompt,dryRun:false});
 }
 async function send(data){
@@ -77,7 +77,7 @@ function mount(){
  const host=document.querySelector('#extensions_settings2')||document.querySelector('#extensions_settings');
  if(!host||document.getElementById('build-standalone-adapter-settings'))return;
  const panel=document.createElement('div');panel.id='build-standalone-adapter-settings';panel.className='inline-drawer';
- panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>启用预设 / 背景分流</label><p>版本 0.2.1。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>需关闭合并系统消息；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
+ panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>启用预设 / 背景分流</label><p>版本 0.2.2。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>需关闭合并系统消息；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
  host.append(panel);statusElement=panel.querySelector('[data-status]');
  const enabled=panel.querySelector('[data-enable]');enabled.checked=settings().enabled;
  enabled.addEventListener('change',()=>{settings().enabled=enabled.checked;context().saveSettingsDebounced();status('设置已保存。');});

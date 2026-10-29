@@ -100,8 +100,8 @@ test('actual extension hooks preserve per-request sources through final prompt i
  if(source==='openai'){assert.equal(data.custom_include_body,undefined);assert.equal(data.custom_exclude_body,undefined);}
  else assert.deepEqual(JSON.parse(data.custom_include_body).messages,JSON.parse(JSON.stringify(data.messages)));
  assert.deepEqual(errors,[]);
- // Actual changes to original text still fail, even at the final capture.
- manager.messages={collection:leaves};const changed=structuredClone(chat);changed.at(-1).content='CHANGED_ORIGINAL';
+ // Changes outside a preset's boundaries still fail at the final capture.
+ manager.messages={collection:leaves};const changed=structuredClone(chat);changed[0].content+='CHANGED_OUTSIDE_BOUNDARY';
  handlers.get('final')({prompt:changed});
  const denied={chat_completion_source:source,reverse_proxy:oai.reverse_proxy,model,messages:changed};await handlers.get('send')(denied);
  assert.throws(()=>parseCompletion({model,messages:denied.messages}),/适配器已阻止/);
@@ -147,5 +147,28 @@ test('ST context extensions may insert messages without changing original preset
  assert.equal(segments.find(s=>s.text==='TABLE_CONTEXT').placement,'file');
  assert.equal(segments.find(s=>s.text===f.preset).placement,'inline');
  chat[3].content='CHANGED_HISTORY';
- assert.throws(()=>captureSegments(chat,{collection:f.leaves},f.settings,f.tagger),/metadata_mismatch/);
+ assert.equal(captureSegments(chat,{collection:f.leaves},f.settings,f.tagger).find(s=>s.text==='CHANGED_HISTORY').placement,'file');
+});
+
+test('late advice decorations on history remain verbatim in files, without swallowing inline presets',()=>{
+ const f=sourceFixture(),chat=structuredClone(f.chat);
+ chat[3].content='<advice>RESOLVED_ADVICE</advice>\n\n'+chat[3].content;
+ const segments=captureSegments(chat,{collection:f.leaves},f.settings,f.tagger,{latestUserText:'CURRENT'});
+ assert.equal(segments.find(s=>s.text===chat[3].content).placement,'file');
+ assert.equal(segments.find(s=>s.text==='CURRENT').placement,'inline');
+ assert.equal(segments.find(s=>s.text===f.preset).placement,'inline');
+ const bad=structuredClone(chat);bad[5].content='REMOVED_EMBEDDED_PRESET';
+ assert.throws(()=>captureSegments(bad,{collection:f.leaves},f.settings,f.tagger),/metadata_mismatch/);
+});
+
+test('late preset macro resolution keeps its source while rejecting moved boundaries or unmarked edits',()=>{
+ const f=sourceFixture(),chat=structuredClone(f.chat);
+ chat[0].content=chat[0].content.replace(f.preset,'RESOLVED_PRESET');
+ chat[1].content=chat[1].content.replace('WORLD_ONLY','RESOLVED_WORLD');
+ const segments=captureSegments(chat,{collection:f.leaves},f.settings,f.tagger);
+ assert.equal(segments.find(s=>s.text==='RESOLVED_PRESET').placement,'inline');
+ assert.equal(segments.find(s=>s.text==='RESOLVED_WORLD').placement,'file');
+ for(const change of [c=>c[0].role='user',c=>c[0].content+='UNMARKED',c=>[c[0],c[1]]=[c[1],c[0]],c=>c[0].content=c[0].content.replace(':END]]',':BROKEN]]')]){
+  const bad=structuredClone(chat);change(bad);assert.throws(()=>captureSegments(bad,{collection:f.leaves},f.settings,f.tagger));
+ }
 });
