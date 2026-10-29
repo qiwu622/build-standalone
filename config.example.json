@@ -1,0 +1,11 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "publicOrigin": "http://127.0.0.1:8787",
+  "dataDir": "./data",
+  "browserPath": "",
+  "headless": true,
+  "requestTimeoutMs": 420000,
+  "maxQueue": 8,
+  "maxBodyBytes": 8388608
+}

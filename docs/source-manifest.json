@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-29",
+  "source": "user-owned gemini-aggregate business additions; no upstream core imported",
+  "files": [
+    {
+      "file": "build-chat.mjs",
+      "sha256": "b0c007d6dd92cc5c0304b327a1a677659c076cedee59bc8ea29318ef69cd793d",
+      "kind": "user-authored business module, adapted"
+    },
+    {
+      "file": "build-thinking.mjs",
+      "sha256": "60a98a5057e0b6123348e4f47fa9cd2e6cb6285ad07f48c72640fd86afbdfc85",
+      "kind": "user-authored business module, adapted"
+    },
+    {
+      "file": "build-file-context.mjs",
+      "sha256": "1b864bd6c620d575f10d6415b8b2b911781f3b6e187940a813a0ca01d94615c0",
+      "kind": "user-authored business module, adapted"
+    },
+    {
+      "file": "build-pool.mjs",
+      "sha256": "0a2f61faf0fee30d90f3e7b04cffc5edff011daef72210d63d2593f85599dbc3",
+      "kind": "user-authored business module, adapted"
+    }
+  ]
+}

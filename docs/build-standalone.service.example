@@ -1,0 +1,18 @@
+[Unit]
+Description=Build Standalone
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Replace both paths with your own installation and Node executable.
+WorkingDirectory=/absolute/path/to/build-standalone
+ExecStart=/absolute/path/to/node /absolute/path/to/build-standalone/src/main.mjs
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+UMask=0077
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
