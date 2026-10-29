@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$ReleaseDirectory, [string]$TargetDirectory, [switch]$SkipBrowserDownload)
+param([Parameter(Mandatory=$true)][string]$ReleaseDirectory, [string]$TargetDirectory, [switch]$SkipBrowserDownload, [switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
@@ -31,7 +31,7 @@ try {
     if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
     Copy-Item -LiteralPath $New -Destination $Destination -Recurse
   }
-  & (Join-Path $TargetRoot 'scripts\install.ps1') -SkipBrowserDownload:$SkipBrowserDownload
+  & (Join-Path $TargetRoot 'scripts\install.ps1') -SkipBrowserDownload:$SkipBrowserDownload -SkipTests:$SkipTests
   if (-not $?) { throw '新版本安装失败；旧源码备份保留在 work/upgrade-*，数据未删除' }
   Write-Host ('升级完成；config.json 与数据已保留。旧源码备份：' + $BackupRoot)
   Write-Host '运行 npm run start:background 启动新版本。'

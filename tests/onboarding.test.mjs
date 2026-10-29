@@ -18,7 +18,7 @@ function fixture({projects=[],persisted={},local={},authorize=true}={}){
     if(method==='Runtime.evaluate')return {result:{value:params.expression.includes('const b=')?{x:5,y:5}:true}};
     return {};
   }}};
-  const client={post:async()=>({allowCreate:authorize,expiresAt:Date.now()+1200000,projects}),connect:async value=>connections.push(value)};
+  const client={post:async()=>({allowCreate:authorize,expiresAt:Date.now()+1200000,projects}),probeAccount:async()=>({email}),connect:async value=>connections.push(value)};
   const flow=new Onboarding({chrome,client});
   const pulse=async(state={})=>{const tab=[...tabs.values()].at(-1);if(state.url)tab.url=state.url;else if(tab.url.startsWith('https://accounts.google.com/'))tab.url=home;await flow.pulse(tab.id,{url:tab.url,email,hasPlan:true,initializing:true,...state});};
   return {flow,chrome,client,tabs,sent,connections,pulse,sessionData,localData};
@@ -90,4 +90,25 @@ test('concurrent starts open only one login tab and failed authorization permits
   await assert.rejects(denied.flow.start({base,code,adminTabId:1}),/管理页/);
   denied.client.post=original;
   await denied.flow.start({base,code,adminTabId:1});assert.equal(denied.tabs.size,1);
+});
+
+test('editor without account controls retains the new project and connects only after a fresh homepage identity matches',async()=>{
+  const f=fixture();await f.flow.start({base,code,adminTabId:1});await f.pulse();
+  let probes=0;f.client.probeAccount=async index=>{assert.equal(index,'0');probes++;return {email};};
+  const state={url:app,email:null,accountControlFound:false,initializing:false,ready:true,creationReplyReady:true};
+  await f.pulse({...state,running:true});assert.equal(probes,0);assert.equal(f.localData.dedicatedProjects[0].url,app);
+  await f.pulse(state);await f.pulse(state);assert.equal(f.connections.length,1);
+  assert.equal(f.sent.filter(x=>x.method==='Input.insertText').length,1);
+  const changed=fixture({projects:[{email,url:app}]});await changed.flow.start({base,code,adminTabId:1});await changed.pulse();
+  changed.client.probeAccount=async()=>({email:'other@example.invalid'});
+  await changed.pulse({...state,url:changed.tabs.get(10).url});assert.equal(changed.connections.length,0);
+  assert.match((await changed.flow.status(base)).jobs[0].message,/账号发生变化/);
+});
+
+test('a late project with no account button is preserved after expiration without another inference',async()=>{
+  const f=fixture();await f.flow.start({base,code,adminTabId:1});await f.pulse();f.flow.jobs[10].expiresAt=0;
+  await f.pulse({url:app,email:null,initializing:false,ready:true});
+  assert.equal(f.localData.dedicatedProjects[0].url,app);assert.equal(f.connections.length,0);
+  await f.flow.start({base,code,adminTabId:1});await f.pulse();
+  assert.match(f.tabs.get(11).url,/dedicated-123/);assert.equal(f.sent.filter(x=>x.method==='Input.insertText').length,1);
 });

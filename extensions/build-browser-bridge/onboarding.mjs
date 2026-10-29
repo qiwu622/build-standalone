@@ -70,19 +70,36 @@ export class Onboarding {
     try{
       const tab=await this.chrome.tabs.get(tabId);if(tab.url!==state.url)return;googleURL(tab.url);
       job.lastSeenAt=this.now();
+      // Google assigns the project URL before its editor renders an account
+      // control (often it never does). Save this one creation result early.
+      let assigned;try{assigned=project(state.url);}catch{}
+      if(assigned&&job.email&&job.created&&['creating','error','cancelled'].includes(job.stage)){
+        if(job.authUser!==undefined&&assigned.authUser!==job.authUser)throw new Error('专用项目的 Google 账号索引发生变化');
+        if(!job.projectURL)await this.remember(job,assigned.url);
+        else if(job.projectURL!==assigned.url)throw new Error('创建过程中项目发生变化，已停止');
+      }
+      if(['error','cancelled'].includes(job.stage))return;
       if(!['error','cancelled'].includes(job.stage)&&job.expiresAt<=this.now())throw new Error('登录接入已超时，请在管理页重新开始；不会重复自动创建项目');
       if(state.observerError){job.notice='Build 页面识别脚本发生错误，请重新加载本机连接器并刷新这个 Build 标签页';await this.save();return;}
+      if(!state.email&&!state.accountAmbiguous&&assigned&&job.email&&['creating','reuse'].includes(job.stage)){
+        if(assigned.url!==job.projectURL)throw new Error('打开的项目与已登记专用项目不一致');
+        if(state.error&&!state.running)throw new Error('Google 项目初始化或加载报错，请查看当前标签页；已保留项目地址');
+        if(!state.ready||state.running||(job.stage==='creating'&&!state.creationReplyReady)){
+          job.readyObservations=0;job.notice='专用项目已保存，等待 Google 完成初始化';await this.save();return;
+        }
+        job.notice='专用项目已就绪，正在通过 Build 主页核对 Google 账号';await this.save();
+        const proof=await this.client.probeAccount(assigned.authUser);
+        if(['error','cancelled'].includes(job.stage))return;
+        if((await this.chrome.tabs.get(tabId)).url!==state.url)throw new Error('核对账号时专用项目发生变化');
+        state={...state,email:proof.email};
+      }
       if(!state.email){
         job.notice=state.accountAmbiguous?'页面出现多个账号标识，无法确认当前账号，请关闭账号切换菜单后重试':state.accountControlFound?'已看到 Google 账号控件，但未读取到当前邮箱；请检查右上角账号菜单并刷新 Build 页面':'Build 页面已打开，但尚未识别到 Google 账号控件；请确认页面已加载并完成登录或官方验证';
         await this.save();return;
       }
       delete job.notice;
       if(job.email&&job.email.toLowerCase()!==state.email.toLowerCase())throw new Error('接入过程中 Google 账号发生变化，请重新开始');
-      if(!job.email){job.email=state.email;await this.save();}
-      if(['error','cancelled'].includes(job.stage)){
-        if(job.created&&!job.projectURL&&state.ready){try{await this.remember(job,project(state.url).url);}catch{}}
-        return;
-      }
+      if(!job.email){job.email=state.email;job.authUser=accountIndex(state.url);await this.save();}
       if(job.stage==='login'){
         if(state.introNoticeVisible){job.notice='Google 的首次使用介绍仍遮住页面，请在 Build 页点击 Skip（跳过），接入会自动继续';await this.save();return;}
         // A local service restart invalidates its capability. Check again

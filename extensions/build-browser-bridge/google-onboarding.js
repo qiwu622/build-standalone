@@ -1,6 +1,11 @@
 // Passive DOM observation only. Never runs on accounts.google.com, fills login
 // forms, accepts consent dialogs, or interacts with projects outside a job.
 if(window.top===window){
+  // Only the extension's own background worker can ask its newly created
+  // verification tab for account-control metadata. No page-message bridge.
+  chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+    if(message.action==='build-read-identity'&&sender.id===chrome.runtime.id&&!sender.tab){respond(globalThis.buildStandaloneReadIdentity());}
+  });
   let busy=false;
   const pulse=async()=>{
     if(busy)return;busy=true;

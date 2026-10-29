@@ -61,9 +61,10 @@ export class ExtensionBridge {
       if(!commands.has(method))return Promise.reject(error('扩展不允许此浏览器命令',400,'command_denied'));
       if(session.pending.size>=8)return Promise.reject(error('扩展命令积压，请重新连接',503,'extension_busy'));
       const id=randomBytes(12).toString('hex');
+      const timeout=method==='Runtime.evaluate'&&params.expression===identityExpression?Math.max(this.commandTimeout,25000):this.commandTimeout;
       return new Promise((resolve,reject)=>{
-        const timer=setTimeout(()=>this.disconnect(session),this.commandTimeout);
-        session.pending.set(id,{resolve,reject,timer});session.queue.push({id,method,params,deadline:this.now()+this.commandTimeout});session.waiter?.();
+        const timer=setTimeout(()=>this.disconnect(session),timeout);
+        session.pending.set(id,{resolve,reject,timer});session.queue.push({id,method,params,deadline:this.now()+timeout});session.waiter?.();
       });
     };
     send.onEvent=fn=>{session.listeners.add(fn);return()=>session.listeners.delete(fn);};
@@ -76,7 +77,7 @@ export class ExtensionBridge {
     if(session.busy)throw error('该浏览器标签页正在执行请求',409,'busy');session.busy=true;
     const send=this.sender(session);
     try{
-      const r=await send('Runtime.evaluate',{expression:identityExpression,returnByValue:true});const identity=r.result?.value;
+      const r=await send('Runtime.evaluate',{expression:identityExpression,returnByValue:true,buildForceIdentity:true});const identity=r.result?.value;
       if(!identity?.ready||identity.email?.toLowerCase()!==account.email.toLowerCase()||buildAppForAccount(identity.url,account.auth_user||'0')!==session.appURL)throw safeFailure('account_mismatch');
       checkAbort(signal);return await action(send);
     }finally{session.busy=false;session.listeners.clear();}

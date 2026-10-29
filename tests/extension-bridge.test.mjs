@@ -123,3 +123,18 @@ test('manifest has no Cookie or external debugging-port permission',async()=>{
   assert.equal(manifest.manifest_version,3);assert.ok(!manifest.permissions.includes('cookies'));assert.ok(!manifest.host_permissions.includes('<all_urls>'));
   assert.equal(manifest.minimum_chrome_version,'118');
 });
+
+test('editor identity uses a verified background homepage and fresh per-request proof, with cleanup and account guards',async()=>{
+  const target=identity(1);let email=target.email,created=0,removed=0,probeURL;
+  const chrome={tabs:{get:async id=>({url:id===21?target.url:probeURL}),create:async({url,active})=>{assert.equal(active,false);probeURL=url;created++;return {id:90};},remove:async id=>{assert.equal(id,90);removed++;},sendMessage:async()=>({email,accountControlFound:true,authUser:'1',url:probeURL})},debugger:{sendCommand:async(_target,_method,params)=>{assert.equal(params.buildForceIdentity,undefined);return {result:{value:{...target,email:null}}};}}};
+  const client=new BridgeClient({chrome});
+  const first=await client.readIdentity(21);assert.equal(first.result.value.email,email);assert.equal(first.result.value.identitySource,'build-home');assert.match(probeURL,/authuser=1/);
+  await client.readIdentity(21);assert.equal(created,1);assert.equal(removed,1);
+  email='switched@example.invalid';
+  await assert.rejects(client.command({tabId:21,target:project(target.url).url,email:target.email},{id:'proof',method:'Runtime.evaluate',params:{expression:identityExpression,buildForceIdentity:true},deadline:Date.now()+5000}),/账号发生变化/);
+  assert.equal(created,2);assert.equal(removed,2);
+  chrome.tabs.sendMessage=async()=>({email,accountControlFound:true,authUser:'0',url:probeURL});
+  await assert.rejects(client.probeAccount('1',{force:true}),/核对页面发生变化/);assert.equal(removed,3);
+  chrome.tabs.sendMessage=async()=>null;
+  await assert.rejects(client.probeAccount('1',{force:true,deadline:Date.now()}),/超时/);assert.equal(removed,4);
+});

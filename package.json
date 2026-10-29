@@ -1,6 +1,6 @@
 {
   "name": "build-standalone",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "description": "Single-process Google AI Studio Build text gateway",

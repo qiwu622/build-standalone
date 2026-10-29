@@ -1,4 +1,4 @@
-# Build Standalone 0.4.2
+# Build Standalone 0.4.3
 
 独立的 Google AI Studio **Build 代码助手**文本服务，提供 OpenAI 兼容接口、账号池、项目文件长历史、酒馆预设分流及模型思考档位。
 
@@ -6,7 +6,22 @@
 
 当前为实验版：离线回归与模拟扩展的本机 HTTP 链路已验证；真实浏览器扩展安装、Google 身份识别、项目文件保存和生成仍需要用户登录后验收。不能保证 Google 一定接受会话。SSE 仍为完整答案完成后返回，不是真正逐 token 流式。
 
-## 安装
+## Windows 一键安装
+
+打开普通 PowerShell，复制以下两行。**不需要提前安装 Git、Node.js，也不用手动下载项目包。**
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/qiwu622/build-standalone/main/scripts/bootstrap.ps1 -OutFile "$env:TEMP\build-setup.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\build-setup.ps1"
+```
+
+脚本从本仓库下载当前 main 对应的固定版本，缺少运行环境时下载并校验官方 Node.js 24 LTS，安装依赖、初始化密钥、后台启动并打开管理页。默认安装到 `%LOCALAPPDATA%\BuildStandalone`，自动从 8787 起选择空闲端口，并创建桌面“Build Standalone”快捷方式。无需管理员权限，不会停止占用端口的其他程序。
+
+首次仍需在常用 Chrome／Edge 安装本机连接器一次，然后点管理页“登录并自动接入”。网站不能静默安装浏览器扩展。详细步骤见 [电脑部署教程](docs/windows.md)。
+
+再次执行上述命令可更新由该脚本管理的安装，保留配置、密钥和账号；升级前备份旧源码。存在进行中或排队请求时停止升级。浏览器扩展更新后需在扩展管理页点“重新加载”，再刷新管理页和 Build 标签页。
+
+## 源码安装 / Linux
 
 安装 Node.js 22+ 与 npm，克隆到独立可写目录：
 
@@ -81,7 +96,7 @@ npm run demo               独立 demo-data，不能连接真实扩展
 
 未设置开机自动启动。默认仅监听回环地址。管理/API 密钥分离，扩展仅持有一次性配对产生的内存连接令牌；配对码 5 分钟有效且一次使用。`/bridge/*` 只接受回环连接和本机 Host，拒绝普通网页 Origin。令牌不授予管理/API 权限；断连或服务重启即失效。
 
-新发布包解压到另一目录，使用新包中的 `scripts/upgrade.ps1 -ReleaseDirectory ... -TargetDirectory ...` 或 `scripts/upgrade.sh ... --target ...`。升级停止本实例，备份允许的源码到 `work/upgrade-*`，保留配置与数据，安装依赖并测试后再自行启动。浏览器扩展更新后在扩展管理页点“重新加载”并重新配对。
+Windows 一键安装的用户重新执行顶部命令即可更新和启动。手动源码安装仍可使用新发布包中的 `scripts/upgrade.ps1 -ReleaseDirectory ... -TargetDirectory ...` 或 `scripts/upgrade.sh ... --target ...`。升级停止本实例，备份允许的源码到 `work/upgrade-*`，保留配置与数据；手动升级默认执行离线测试，一键安装默认跳过，可传 `-RunTests` 开启。浏览器扩展更新后在扩展管理页点“重新加载”并重新配对。
 
 私有备份：停止服务后使用 `scripts/backup.ps1` / `scripts/backup.sh`。旧账号资料、密钥和配置不能公开；当前扩展模式的 Google 登录属于常用浏览器，不包含在服务备份里。
 
