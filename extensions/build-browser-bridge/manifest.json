@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Build 本机连接器",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "正常登录 Google 后，自动创建或复用专用 Build 项目并连接本机 Build Standalone。",
   "minimum_chrome_version": "118",
   "permissions": ["debugger", "activeTab", "storage"],

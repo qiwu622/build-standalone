@@ -84,6 +84,7 @@ export class Onboarding {
         return;
       }
       if(job.stage==='login'){
+        if(state.introNoticeVisible){job.notice='Google 的首次使用介绍仍遮住页面，请在 Build 页点击 Skip（跳过），接入会自动继续';await this.save();return;}
         // A local service restart invalidates its capability. Check again
         // before any provisioning inference, rather than failing after it.
         const capability=await this.client.post(job.base,'/bridge/authorize',{code:job.code});
