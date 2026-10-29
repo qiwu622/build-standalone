@@ -10,7 +10,11 @@ export function parseCompletion(body) {
   const tavern=body.model.startsWith('build-st/');
   const alias=tavern?body.model.slice(9):body.model.startsWith('build/')?body.model.slice(6):body.model;
   const resolved=resolveBuildModel(alias);
-  const unsupported=['tools','tool_choice','functions','function_call','response_format','temperature','top_p','stop','seed','logprobs','top_logprobs','presence_penalty','frequency_penalty','logit_bias','modalities','audio','prediction','reasoning_effort','user'];
+  // Many OpenAI clients always send sampling defaults. Build exposes none of
+  // those controls: omit them from the normalized request below, without
+  // rejecting the call or copying them into the prompt. Thinking stays bound
+  // to the model suffix. Unsupported input/output capabilities remain explicit.
+  const unsupported=['tools','tool_choice','functions','function_call','response_format','modalities','audio'];
   for(const key of unsupported)if(body[key]!==undefined&&body[key]!==null)throw error('此接口不支持参数：'+key,400,'unsupported_parameter');
   if(body.n!==undefined&&body.n!==1)throw error('仅支持 n=1');
   if(body.stream!==undefined&&typeof body.stream!=='boolean')throw error('stream 必须为布尔值');

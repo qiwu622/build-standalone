@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture,body} from './helpers.mjs';
+import {parseCompletion} from '../src/protocol.mjs';
+import {encodeEnvelope} from '../extensions/build-standalone-adapter/transport.js';
 
 test('HTTP API authenticates and runs direct executor end to end',async t=>{
   const seen=[];const f=await fixture(t,{executor:{async execute(input,ctx){seen.push({input,ctx});return {text:'DIRECT_OK'};}}});
@@ -26,6 +28,23 @@ test('invalid parameters fail before executor; body size and Origin enforced',as
   assert.equal((await f.call('/v1/chat/completions',{...body,messages:[{role:'user',content:'x'.repeat(2000)}]})).status,413);
   assert.equal((await f.call('/v1/models',undefined,{headers:{Origin:'https://example.invalid'}})).status,403);assert.equal(calls,0);
   const bad=await fetch(f.url+'/v1/chat/completions',{method:'POST',headers:{authorization:'Bearer '+f.credentials.apiKey,'content-type':'application/json'},body:'{'});assert.equal(bad.status,400);
+});
+
+test('client sampling defaults are ignored for ordinary, build and tavern models in JSON and SSE',async t=>{
+  const seen=[];const f=await fixture(t,{executor:{async execute(input){seen.push(input);return {text:'COMPAT_OK'};}}});
+  const defaults={temperature:0.7,top_p:0.9,top_k:40,top_a:0,min_p:0.05,presence_penalty:0.5,frequency_penalty:0.2,repetition_penalty:1.1,stop:['END'],seed:42,logprobs:false,top_logprobs:0,logit_bias:{'123':5},reasoning_effort:'high',user:'CLIENT_METADATA_ONLY',verbosity:'low',prediction:{type:'content',content:'PREDICTION_ONLY'}};
+  const tavern={model:'build-st/gemini-4-argon-low',messages:[encodeEnvelope([{message:0,part:0,role:'user',source:'chatHistory-0',placement:'file',text:'original history'}],'normal',0)]};
+  for(const request of [body,{...body,model:'build/'+body.model},tavern])for(const stream of [false,true]){
+    const original={...request,stream,max_tokens:1024},input={...original,...defaults},snapshot=structuredClone(input);
+    const response=await f.call('/v1/chat/completions',input),text=await response.text();
+    assert.equal(response.status,200,text);
+    assert.deepEqual(seen.at(-1),parseCompletion(original));
+    assert.equal(seen.at(-1).resolved.thinkingLevel,'low');
+    assert.deepEqual(seen.at(-1).body.generationConfig,{maxOutputTokens:1024});
+    assert.deepEqual(input,snapshot);
+    if(stream){assert.match(text,/COMPAT_OK/);assert.ok(text.endsWith('data: [DONE]\n\n'));}
+    else assert.equal(JSON.parse(text).choices[0].message.content,'COMPAT_OK');
+  }
 });
 test('timeout aborts executor and releases the serialized queue',async t=>{
   let aborted=0;const f=await fixture(t,{requestTimeoutMs:80,executor:{execute(_input,{signal}){return new Promise((_,reject)=>signal.addEventListener('abort',()=>{aborted++;reject(signal.reason);},{once:true}));}}});
