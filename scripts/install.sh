@@ -24,6 +24,6 @@ node src/main.mjs --init
 data_path="$(node --input-type=module -e 'import {loadConfig} from "./src/storage.mjs"; console.log((await loadConfig()).dataDir)')"
 chmod 700 -- "$data_path"
 if [ "$skip_tests" = false ]; then npm test; fi
-if [ "$skip_browser" = false ]; then npm run install:browser; fi
+echo '使用常用 Chrome/Edge 扩展连接，不下载或启动独立 Chromium。'
 echo '安装完成：npm start 或 npm run start:background；停止：npm stop'
-echo 'Linux 浏览器系统库安装、SSH X11 登录和常驻运行见 docs/linux.md。'
+echo '常用浏览器接入见 docs/browser-extension.md；本版连接器仅支持同一电脑。'

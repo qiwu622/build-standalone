@@ -42,6 +42,29 @@ export function createService({config,credentials,executor,store,pool,browsers,l
         res.setHeader('content-type',path==='/'?'text/html; charset=utf-8':path.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8');
         return res.end(await readFile(join(projectRoot,'public',path==='/'?'index.html':path.slice(1))));
       }
+      if(path.startsWith('/bridge/')) {
+        // This transport is intentionally local-only. The extension never gets
+        // adminKey/apiKey, and a normal web origin cannot pair or send commands.
+        const remote=req.socket.remoteAddress;
+        const hosts=[`127.0.0.1:${req.socket.localPort}`,`localhost:${req.socket.localPort}`];
+        if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(remote)||!hosts.includes(req.headers.host)||
+          (req.headers.origin&&!/^chrome-extension:\/\/[a-p]{32}$/.test(req.headers.origin)))throw error('浏览器扩展仅允许本机连接',403,'bridge_origin_denied');
+        if(demo||!browsers?.exchange)throw error('此实例不支持扩展连接',409,'bridge_unavailable');
+        if(req.method!=='POST')throw error('扩展接口需要 POST',405);
+        if(path==='/bridge/connect') {
+          const body=await readBody(req,4096);
+          return json(res,200,await adminOperation(()=>browsers.connect(body)));
+        }
+        const session=browsers.authenticate((req.headers.authorization||'').replace(/^Bearer /,''));
+        if(path==='/bridge/disconnect'){browsers.disconnect(session);return json(res,200,{ok:true});}
+        if(path==='/bridge/exchange'){
+          const body=await readBody(req,16*1024*1024),cancel=new AbortController();
+          res.once('close',()=>cancel.abort());
+          const value=await browsers.exchange(session,body,cancel.signal);
+          if(!res.destroyed)return json(res,200,value);return;
+        }
+        throw error('扩展路由不存在',404);
+      }
       const admin=path.startsWith('/admin/'),key=admin?credentials.adminKey:credentials.apiKey;
       if(!secureEqual(req.headers.authorization,'Bearer '+key))throw error('鉴权失败',401,'invalid_api_key');
       // Browser cross-site requests are denied; API clients without Origin still work.
@@ -65,18 +88,27 @@ export function createService({config,credentials,executor,store,pool,browsers,l
         else json(res,200,output);
         return;
       }
-      if(req.method==='GET'&&path==='/admin/state')return json(res,200,{instanceId,mode:demo?'demo':'live',busy:scheduler.busy||adminBusy,queued:scheduler.queue.length,accounts:store.accounts,pool:pool.snapshot(),login:browsers?.login?{id:browsers.login.id,startedAt:browsers.login.startedAt}:null,streaming:'buffered',upstreamVerified:false});
+      if(req.method==='GET'&&path==='/admin/state')return json(res,200,{instanceId,mode:demo?'demo':'live',busy:scheduler.busy||adminBusy,queued:scheduler.queue.length,accounts:store.accounts,pool:pool.snapshot(),login:browsers?.login?{id:browsers.login.id,startedAt:browsers.login.startedAt}:null,connectionMode:browsers?.pairing?'extension':'legacy',connections:browsers?.snapshot?.()||[],streaming:'buffered',upstreamVerified:false});
       if(req.method==='GET'&&path==='/admin/logs')return json(res,200,{records:await log.recent()});
+      if(req.method==='POST'&&path==='/admin/bridge/pairing') {
+        await readBody(req,1024);if(demo||!browsers?.pairing)throw error('此实例不支持扩展配对',409);
+        return json(res,200,await adminOperation(()=>browsers.pairing()));
+      }
+      if(req.method==='POST'&&path==='/admin/bridge/disconnect') {
+        const body=await readBody(req,1024);browsers?.disconnectAccount?.(body.id);return json(res,200,{ok:true});
+      }
       if(req.method==='POST'&&path==='/admin/login/start') {
+        if(browsers?.pairing)throw error('已改为常用浏览器扩展接入，请生成配对码后连接专用 Build 标签页',410,'extension_required');
         if(demo)throw error('演示模式不打开 Google 登录',409,'demo_mode');
         if(scheduler.busy||scheduler.queue.length)throw error('有请求在执行，请稍后接入账号',409,'busy');
         const body=await readBody(req,4096);return json(res,200,await adminOperation(()=>browsers.beginLogin(body.id)));
       }
       if(req.method==='POST'&&path==='/admin/login/finish') {
+        if(browsers?.pairing)throw error('扩展连接成功后会自动导入账号',410,'extension_required');
         if(demo)throw error('演示模式不导入账号',409);
         const account=await adminOperation(async()=>{const account=await browsers.finishLogin();await pool.sync(store.accounts);await pool.imported(account.id);return account;});return json(res,200,{account});
       }
-      if(req.method==='POST'&&path==='/admin/login/cancel'){await adminOperation(()=>browsers?.cancelLogin());return json(res,200,{ok:true});}
+      if(req.method==='POST'&&path==='/admin/login/cancel'){await adminOperation(()=>browsers?.cancelLogin?.());return json(res,200,{ok:true});}
       if(req.method==='POST'&&path==='/admin/accounts/enabled') {
         if(scheduler.busy||browsers?.login)throw error('请等待当前操作完成',409,'busy');
         const body=await readBody(req,4096);if(typeof body.enabled!=='boolean')throw error('enabled 必须为布尔值');

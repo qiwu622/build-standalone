@@ -73,7 +73,7 @@ export class BuildAccountPool {
             const active=this.state.activeByModel[model];
             const start=Math.max(0,this.roster.findIndex(a=>a.id===active));
             const ordered=[...this.roster.slice(start),...this.roster.slice(0,start)];
-            const account=ordered.find(a=>!tried.has(a.id)&&this.eligible(a,model));
+            const account=ordered.find(a=>!tried.has(a.id)&&this.eligible(a,model)&&(!request.accountAvailable||request.accountAvailable(a.id)));
             if(!account)break;
             tried.add(account.id);
             const previous=this.state.activeByModel[model];
@@ -98,7 +98,7 @@ export class BuildAccountPool {
                 await this.save();
             }
         }
-        const available=this.roster.filter(a=>a.enabled!==false&&!this.state.accounts[a.id].blocked);
+        const available=this.roster.filter(a=>a.enabled!==false&&!this.state.accounts[a.id].blocked&&(!request.accountAvailable||request.accountAvailable(a.id)));
         const next=available.map(a=>this.state.accounts[a.id].models[model]?.cooldownUntil).filter(t=>t>this.now());
         if(!available.length)throw fail('Build 账号池没有已登录且可用的订阅账号，请重新导入账号',503);
         if(available.every(a=>{const m=this.state.accounts[a.id].models[model];return m?.cooldownReason==='permission_denied'&&m.cooldownUntil>this.now();}))throw fail('Build 账号池当前账号均没有此模型的调用权限；请检查订阅、账号权限或重新导入账号',403);

@@ -1,7 +1,7 @@
 import {join} from 'node:path';
 import {loadConfig,initStorage,readJSON,atomicJSON,AccountStore,acquireLock} from './storage.mjs';
 import {BuildAccountPool} from './build-pool.mjs';
-import {BrowserManager} from './browser.mjs';
+import {ExtensionBridge} from './extension-bridge.mjs';
 import {BuildExecutor,DemoExecutor} from './executor.mjs';
 import {CallLog} from './log.mjs';
 import {createService} from './server.mjs';
@@ -20,7 +20,7 @@ try {
   const state=await readJSON(join(config.dataDir,'pool.json'),{});
   const pool=new BuildAccountPool({state,save:()=>{const snapshot=structuredClone(state);writes=writes.catch(()=>{}).then(()=>atomicJSON(join(config.dataDir,'pool.json'),snapshot));return writes;}});
   await pool.sync(store.accounts);
-  const browsers=new BrowserManager(config,store);
+  const browsers=new ExtensionBridge({store,pool});
   const executor=demo?new DemoExecutor():new BuildExecutor({config,browsers,pool,store,log});
   service=createService({config,credentials,store,pool,browsers,executor,log,demo,instanceId:unlock.instanceId,onShutdown:stop});
   await new Promise((resolve,reject)=>{service.server.once('error',reject);service.server.listen(config.port,config.host,resolve);});

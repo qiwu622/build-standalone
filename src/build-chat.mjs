@@ -113,7 +113,7 @@ export class BuildChatWorker {
     async context(send,sid,phase,request) {
         const page=await this.evaluate(send,sid,`(() => { const labels=[...document.querySelectorAll('button[aria-label]')].map(e=>e.getAttribute('aria-label')).filter(s=>/Google (?:Account|账号|帐号)/i.test(s)).join(' ');return {path:location.pathname,authUser:/\\/u\\/(\\d+)\\//.exec(location.pathname)?.[1]||new URL(location.href).searchParams.get('authuser')||'0',email:/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/.exec(labels)?.[0]||null}; })()`);
         const expected=this.pool?.roster.find(a=>a.id===this.accountId);
-        if(!page?.email || !expected?.email || page.email.toLowerCase()!==expected.email.toLowerCase() || page.authUser!=='0')throw safeFailure('account_mismatch');
+        if(!page?.email || !expected?.email || page.email.toLowerCase()!==expected.email.toLowerCase() || page.authUser!==(expected.auth_user||'0'))throw safeFailure('account_mismatch');
         await this.log('account_context',{reason:JSON.stringify({phase,path:page?.path,authUser:page?.authUser,expectedAuthUser:expected?.auth_user,identityMatches:page?.email&&expected?.email?page.email.toLowerCase()===expected.email.toLowerCase():null})},request);
     }
     async wait(send, sid, predicate, timeout = 12000) {
@@ -184,7 +184,7 @@ export class BuildChatWorker {
                     rpcIds.add(event.params.requestId);
                     const rpc=event.params.request;const header=name=>Object.entries(rpc.headers||{}).find(([key])=>key.toLowerCase()===name.toLowerCase())?.[1];
                     const wireUser=header('x-goog-authuser')??new URL(rpc.url).searchParams.get('authuser');
-                    if(wireUser!==null&&wireUser!==undefined&&String(wireUser)!=='0')wireAccountMismatch=true;
+                    if(wireUser!==null&&wireUser!==undefined&&String(wireUser)!==(this.pool?.roster.find(a=>a.id===this.accountId)?.auth_user||'0'))wireAccountMismatch=true;
                     let model=null,appId=null;try{const data=JSON.parse(rpc.postData);if(typeof data[7]==='string'&&/^models\/gemini-[\w.-]+$/.test(data[7]))model=data[7];if(typeof data[11]==='string'&&/^[a-f0-9-]{36}$/i.test(data[11]))appId=data[11];}catch{/* preflight or non-JSPB request */}
                     if(rpc.method==='POST'){
                         request.googleThinkingLevel=readBuildThinking(rpc.postData);

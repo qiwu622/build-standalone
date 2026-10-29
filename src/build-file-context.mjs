@@ -217,11 +217,14 @@ export class BuildFileContext {
    await this.openCode(send,sid);
    if((await this.state(send,sid)).saving)await this.settleSaved(send,sid);
    if((await this.state(send,sid)).dirty)throw fail('Build 项目存在未保存改动，请先处理');
-   const {root}=await send('DOM.getDocument',{},sid);
-   const {nodeId}=await send('DOM.querySelector',{nodeId:root.nodeId,selector:'ms-console-file-tree input[type="file"][multiple]'},sid);
-   if(!nodeId)throw fail('Build 项目文件上传控件不可用');
-   context.uploadStarted=true;
-   await send('DOM.setFileInputFiles',{nodeId,files:context.files.map(f=>join(directory,f.name))},sid);
+   if(send.uploadFiles){context.uploadStarted=true;await send.uploadFiles(context.files);}
+   else {
+    const {root}=await send('DOM.getDocument',{},sid);
+    const {nodeId}=await send('DOM.querySelector',{nodeId:root.nodeId,selector:'ms-console-file-tree input[type="file"][multiple]'},sid);
+    if(!nodeId)throw fail('Build 项目文件上传控件不可用');
+    context.uploadStarted=true;
+    await send('DOM.setFileInputFiles',{nodeId,files:context.files.map(f=>join(directory,f.name))},sid);
+   }
    await this.wait(send,sid,async()=>{
     const state=await this.state(send,sid);return state.dirty&&context.files.every(f=>state.files.includes(f.name));
    },'Build 上下文文件上传失败');

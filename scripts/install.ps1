@@ -35,10 +35,7 @@ try {
     & npm.cmd test
     if ($LASTEXITCODE -ne 0) { throw '自动化测试失败' }
   }
-  if (-not $SkipBrowserDownload) {
-    & npm.cmd run install:browser
-    if ($LASTEXITCODE -ne 0) { throw '独立 Chromium 安装失败；可配置 browserPath 后使用 -SkipBrowserDownload 重试。' }
-  }
+  Write-Host '使用常用 Chrome/Edge 扩展连接，不下载或启动独立 Chromium。'
   Write-Host '安装完成。前台：npm start；后台：npm run start:background；停止：npm stop。'
   Write-Host ('管理页地址见 config.json；独立密钥文件：' + (Join-Path $DataPath 'credentials.json'))
 } finally {

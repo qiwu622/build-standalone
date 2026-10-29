@@ -61,9 +61,9 @@ export class AccountStore {
   constructor(config){this.file=join(config.dataDir,'accounts.json');this.accounts=[];this.chain=Promise.resolve();}
   async load(){this.accounts=await readJSON(this.file,[]);if(!Array.isArray(this.accounts))throw error('accounts.json 无效');return this;}
   async save(){const snapshot=structuredClone(this.accounts);this.chain=this.chain.catch(()=>{}).then(()=>atomicJSON(this.file,snapshot));return this.chain;}
-  async add({email,appURL,id='acct_'+randomBytes(16).toString('hex')}) {
+  async add({email,appURL,id='acct_'+randomBytes(16).toString('hex'),authUser='0',transport}) {
     if(this.accounts.some(a=>a.email.toLowerCase()===email.toLowerCase()&&a.id!==id))throw error('该 Google 账号已导入，请使用重新登录',409);
-    const account={id,email,name:email,auth_user:'0',appURL,enabled:true};
+    const account={id,email,name:email,auth_user:authUser,appURL,enabled:true,...(transport?{transport}:{})};
     const index=this.accounts.findIndex(a=>a.id===id);
     if(index<0)this.accounts.push(account);else this.accounts[index]=account;
     await this.save();return account;

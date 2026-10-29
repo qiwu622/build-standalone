@@ -16,6 +16,8 @@ export class BuildExecutor {
         const {buildInput}=await import('./build-chat.mjs');makeFileContext(buildInput(input.body));
       }
       await this.pool.sync(this.store.accounts);
+      if(this.browsers.online&&!this.store.accounts.some(a=>a.enabled!==false&&this.browsers.online(a.id)))throw error('没有在线的浏览器扩展；请先在常用浏览器连接专用 Build 项目',503,'extension_disconnected');
+      request.accountAvailable=this.browsers.online?id=>this.browsers.online(id):undefined;
       const text=await this.pool.run(input.resolved.model,request,async account=>{
         checkAbort(signal);request.accountId=account.id;
         return this.browsers.withPage(account,signal,async send=>{
