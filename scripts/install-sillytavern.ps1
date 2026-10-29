@@ -27,4 +27,4 @@ foreach ($Name in @('manifest.json','index.js','transport.js')) {
   if ((Get-FileHash -LiteralPath (Join-Path $Source $Name)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $Target $Name)).Hash) { throw '扩展复制校验失败' }
 }
 Write-Host ('已安装：' + $Target)
-Write-Host '请刷新酒馆。仅在使用独立版 0.2.0 的 build-st/ 模型时启用分流，不修改当前连接、预设或聊天记录。'
+Write-Host '请刷新酒馆。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 build-st/ 模型；不修改当前连接、预设或聊天记录。'

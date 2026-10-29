@@ -1,6 +1,9 @@
 // Original adapter code. No SillyTavern implementation is bundled here.
 export const WIRE_PREFIX='BUILD_ST_CONTEXT_V1\n';
 export const MODEL_PREFIX='build-st/';
+export function isBuildConnection(data){
+ return String(data.model||'').startsWith(MODEL_PREFIX)&&(data.chat_completion_source==='custom'||(data.chat_completion_source==='openai'&&typeof data.reverse_proxy==='string'&&!!data.reverse_proxy.trim()));
+}
 export const MAX_SEGMENTS=20000;
 const background=new Set(['worldInfoBefore','worldInfoAfter','charDescription','charPersonality','scenario','personaDescription','dialogueExamples','summary','authorsNote','vectorsMemory','vectorsDataBank','smartContext']);
 const controls=new Set(['main','nsfw','jailbreak','enhanceDefinitions','groupNudge','continueNudge','impersonate','quietPrompt','bias','newMainChat','newChat','emptyUserMessageReplacement']);
@@ -78,6 +81,21 @@ function textMessage(m){
  if(m.name!==undefined&&(typeof m.name!=='string'||m.name.length>128))fail('invalid_name');
  return {role:m.role,content:m.content,...(m.name?{name:m.name}:{})};
 }
+export function messageSignature(messages){
+ if(!Array.isArray(messages))fail('text_only');
+ // Match semantic text fields, not property insertion order or object identity.
+ // The actual role, name, whitespace and message order must still be exact.
+ return JSON.stringify(messages.map(textMessage));
+}
+export function createSnapshotStore({limit=4,now=Date.now}={}){
+ const entries=new Map();
+ const sweep=()=>{for(const [key,item] of entries)if(now()-item.at>300000)entries.delete(key);};
+ return {
+  put(messages,value){sweep();const key=messageSignature(messages);entries.delete(key);entries.set(key,{at:now(),value:{...value,original:key}});while(entries.size>limit)entries.delete(entries.keys().next().value);},
+  take(messages){sweep();const key=messageSignature(messages),item=entries.get(key);entries.delete(key);return item?.value;},
+  clear(){entries.clear();},
+ };
+}
 export function captureSegments(chat,root,settings,tagger,{latestUserText}={}){
  if(tagger.fault)fail(tagger.fault);
  if(!Array.isArray(chat)||!chat.length)fail('metadata_missing');
@@ -115,10 +133,11 @@ export function encodeEnvelope(segments,generationType='normal',inlineTokens=nul
 export function errorEnvelope(code){return {role:'user',content:WIRE_PREFIX+JSON.stringify({version:1,error:code})};}
 export const excludedSampling=['temperature','top_p','top_k','top_a','min_p','presence_penalty','frequency_penalty','repetition_penalty','stop','seed','logprobs','top_logprobs','logit_bias','reasoning_effort','user','verbosity'];
 export function prepareOutgoing(data,snapshot,{inlineTokens=null,tokenBudget=45000}={}){
- if(data.chat_completion_source!=='custom'||!data.model?.startsWith(MODEL_PREFIX))return null;
+ if(!isBuildConnection(data))return null;
  if(data.tools?.length||data.functions?.length||data.json_schema||data.request_images||data.n>1)fail('text_only');
- if(String(data.custom_include_body||'').trim()||String(data.custom_exclude_body||'').trim())fail('custom_body_conflict');
- if(!snapshot||snapshot.original!==JSON.stringify(data.messages))fail('metadata_changed');
+ if(data.chat_completion_source==='custom'&&(String(data.custom_include_body||'').trim()||String(data.custom_exclude_body||'').trim()))fail('custom_body_conflict');
+ if(!snapshot)fail('metadata_missing');
+ if(messageSignature(JSON.parse(snapshot.original))!==messageSignature(data.messages))fail('metadata_changed');
  if(snapshot.error)fail(snapshot.error);
  if(!Number.isFinite(inlineTokens)||inlineTokens<0)fail('token_count_unavailable');
  if(inlineTokens>tokenBudget)fail('inline_budget_exceeded');
@@ -128,7 +147,13 @@ export function applyOutgoing(data,envelope){
  // Custom-body JSON is also valid YAML, and ST applies it after constructing
  // the OpenAI body. No server plugin or modification of ST core is required.
  data.messages=[envelope];
- data.custom_include_body=JSON.stringify({messages:[envelope]});
- data.custom_exclude_body=JSON.stringify(excludedSampling);
- data.custom_prompt_post_processing='';
+ if(data.chat_completion_source==='custom'){
+  data.custom_include_body=JSON.stringify({messages:[envelope]});
+  data.custom_exclude_body=JSON.stringify(excludedSampling);
+  data.custom_prompt_post_processing='';
+ }else{
+  // ST's OpenAI reverse-proxy path forwards messages directly and never
+  // applies custom-body overrides. Preserve its route and credentials.
+  for(const field of excludedSampling)delete data[field];
+ }
 }

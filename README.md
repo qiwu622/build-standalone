@@ -1,4 +1,4 @@
-# Build Standalone 0.4.4
+# Build Standalone 0.4.5
 
 独立的 Google AI Studio **Build 代码助手**文本服务，提供 OpenAI 兼容接口、账号池、项目文件长历史、酒馆预设分流及模型思考档位。
 
