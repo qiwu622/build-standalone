@@ -1,7 +1,7 @@
 import {localBase,project,identityExpression,allowedCommands,filterEvent} from './protocol.mjs';
 
 export class BridgeClient {
-  constructor({chrome,fetcher=fetch}){this.chrome=chrome;this.fetcher=fetcher;this.links=new Map();this.connecting=new Set();this.lastError='';}
+  constructor({chrome,fetcher=(...args)=>globalThis.fetch(...args)}){this.chrome=chrome;this.fetcher=fetcher;this.links=new Map();this.connecting=new Set();this.lastError='';}
   async post(base,path,body,token){
     const res=await this.fetcher(base+path,{method:'POST',credentials:'omit',redirect:'error',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
     const value=await res.json();if(!res.ok)throw new Error(value.error?.message||'本机连接失败');return value;
