@@ -35,10 +35,30 @@ export class BridgeClient {
   }
   async readIdentity(tabId,{force=false,deadline,signal}={}){
     signal?.throwIfAborted();
-    const target=project((await this.chrome.tabs.get(tabId)).url);
+    deadline??=Date.now()+45000;
+    const tab=await this.chrome.tabs.get(tabId),target=project(tab.url);
     signal?.throwIfAborted();
-    const result=await this.chrome.debugger.sendCommand({tabId},'Runtime.evaluate',{expression:identityExpression,returnByValue:true});
+    let result=await this.chrome.debugger.sendCommand({tabId},'Runtime.evaluate',{expression:identityExpression,returnByValue:true});
     signal?.throwIfAborted();
+    if(!result.result?.value?.ready){
+      // The executor's menus and composer selectors use Google's English UI.
+      // Manual reloads or reopened saved URLs can restore the account locale.
+      // Change only this dedicated project's view, before submitting a prompt.
+      const u=new URL(tab.url);
+      if(u.searchParams.get('hl')!=='en'){
+        u.searchParams.set('hl','en');u.searchParams.set('showAssistant','true');
+        await this.chrome.tabs.update(tabId,{url:u.href});signal?.throwIfAborted();
+      }
+      while(Date.now()<deadline-500){
+        signal?.throwIfAborted();
+        if(project((await this.chrome.tabs.get(tabId)).url).url!==target.url)throw new Error('专用项目标签页已改变，已停止操作');
+        signal?.throwIfAborted();
+        try{result=await this.chrome.debugger.sendCommand({tabId},'Runtime.evaluate',{expression:identityExpression,returnByValue:true});}
+        catch(e){signal?.throwIfAborted();if(Date.now()>=deadline-750)throw e;result={};}
+        signal?.throwIfAborted();if(result.result?.value?.ready)break;
+        await new Promise(r=>setTimeout(r,250));
+      }
+    }
     const identity=result.result?.value;
     if(identity?.accountAmbiguous)throw new Error('Google 账号标识不唯一');
     if(!identity?.ready||project(identity.url).url!==target.url)throw new Error('专用 Build 项目尚未就绪');
@@ -60,17 +80,7 @@ export class BridgeClient {
     const tab=await this.chrome.tabs.get(tabId),target=project(tab.url);this.connecting.add(tabId);let attached=false,session;
     try{
       await this.chrome.debugger.attach({tabId},'1.3');attached=true;
-      if(resumeKey){
-        const until=Date.now()+45000;
-        while(true){
-          if(project((await this.chrome.tabs.get(tabId)).url).url!==target.url)throw new Error('专用项目标签页已改变');
-          const r=await this.chrome.debugger.sendCommand({tabId},'Runtime.evaluate',{expression:identityExpression,returnByValue:true});
-          if(r.result?.value?.ready)break;
-          if(Date.now()>=until)throw new Error('项目加载超时；请检查 Google 页面，稍后自动重连');
-          await new Promise(r=>setTimeout(r,500));
-        }
-      }
-      const result=await this.readIdentity(tabId,{force:true});
+      const result=await this.readIdentity(tabId,{force:true,deadline:Date.now()+45000});
       const identity=result.result?.value;
       if(!identity?.ready||!identity.email||project(identity.url).url!==target.url)throw new Error('请先正常登录 Google，打开专用 Build 项目并等待聊天输入框出现');
       if(expectedEmail&&identity.email.toLowerCase()!==expectedEmail.toLowerCase())throw new Error('Google 当前账号与自动接入账号不一致，请重新登录');

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BridgeClient} from '../extensions/build-browser-bridge/client.mjs';
+import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
 
 test('a hung Chrome command releases the stale local connection so saved-project recovery can run',async t=>{
  const target='https://aistudio.google.com/apps/test?authuser=0';
@@ -28,4 +29,18 @@ test('a tab lookup resolving after expiry cannot submit delayed input or another
  await assert.rejects(client.command(session,{id:'late',method:'Input.insertText',params:{text:'DO_NOT_SEND'},deadline:Date.now()+30}),e=>e.code==='browser_command_timeout');
  resolveTab({url:target});await new Promise(r=>setTimeout(r,0));
  assert.equal(sends,0);
+});
+
+test('a Chinese project composer is normalized to English before identity verification without generating',async()=>{
+ let url='https://aistudio.google.com/apps/test?authuser=1&hl=zh-CN&showPreview=false';const updates=[],commands=[];
+ const chrome={tabs:{get:async()=>({url}),update:async(id,value)=>{assert.equal(id,4);updates.push(value.url);url=value.url;}},debugger:{sendCommand:async(_target,method,params)=>{
+  commands.push(method);assert.equal(params.expression,identityExpression);
+  return {result:{value:{url,email:'test@example.invalid',ready:new URL(url).searchParams.get('hl')==='en',authUser:'1'}}};
+ }}};
+ const client=new BridgeClient({chrome});
+ const result=await client.readIdentity(4,{force:true,deadline:Date.now()+2000});
+ assert.equal(result.result.value.ready,true);assert.equal(updates.length,1);
+ const changed=new URL(updates[0]);assert.equal(changed.pathname,'/apps/test');assert.equal(changed.searchParams.get('authuser'),'1');assert.equal(changed.searchParams.get('hl'),'en');assert.equal(changed.searchParams.get('showPreview'),'false');assert.equal(changed.searchParams.get('showAssistant'),'true');
+ assert.ok(commands.every(m=>m==='Runtime.evaluate'),'normalization must not submit any prompt');
+ await client.readIdentity(4,{force:true,deadline:Date.now()+2000});assert.equal(updates.length,1,'ready English editor must not reload');
 });
