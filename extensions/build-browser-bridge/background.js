@@ -30,7 +30,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       if(message.action==='onboarding-probe')return {version:chrome.runtime.getManifest().version};
       if(message.action==='onboarding-restore')return resume.restore(base,{force:true});
       if(message.action==='onboarding-start')return onboarding.start({base,code:message.code,adminTabId:sender.tab.id});
-      if(message.action==='onboarding-status')return onboarding.status(base);
+      if(message.action==='onboarding-status')return {...await onboarding.status(base),connectionError:client.lastError,reconnect:resume.notices};
       if(message.action==='onboarding-cancel'){await onboarding.cancel(base);return {};}
       throw new Error('未知操作');
     })().then(value=>respond({ok:true,...value}),e=>respond({ok:false,error:e.message}));return true;

@@ -16,6 +16,8 @@ async function extensionState(){
     const probe=await extension('probe');extensionReady=true;$('extension-status').textContent='已检测到本机连接器 '+(probe.version||'')+'，登录后将自动创建或复用专用项目。';
     const value=await extension('status');$('onboarding-status').replaceChildren();let active=false;
     for(const job of value.jobs||[]){$('onboarding-status').append(element('p',(job.email?job.email+' · ':'')+job.message));if(!['connected','error','cancelled'].includes(job.stage))active=true;}
+    if(value.connectionError)$('onboarding-status').append(element('p','连接器错误：'+value.connectionError,'error'));
+    for(const item of value.reconnect||[])$('onboarding-status').append(element('p',(item.email?item.email+' · ':'')+item.message));
     $('cancel-onboarding').hidden=!active;return active;
   }catch(e){extensionReady=false;$('extension-status').textContent=e.message;$('cancel-onboarding').hidden=true;return false;}
 }
@@ -41,7 +43,7 @@ async function refresh(){
   for(const account of state.accounts){
     const connected=state.connections?.some(c=>c.accountId===account.id&&c.connected);
     const row=element('div',undefined,'account'),head=element('div',undefined,'account-head'),title=element('div');
-    title.append(element('strong',account.email),element('small',(account.enabled?'已启用':'已停用')+' · '+(connected?'扩展在线':'等待自动恢复；首次升级请接入一次')));head.append(title);
+    title.append(element('strong',account.email),element('small',(account.enabled?'已启用':'已停用')+' · '+(connected?'Build 执行连接在线':'Build 执行连接离线，当前无法调用；请查看上方连接器状态')));head.append(title);
     const controls=element('div',undefined,'row');
     controls.append(action(account.enabled?'停用':'启用',async()=>{await api('/admin/accounts/enabled',{id:account.id,enabled:!account.enabled});message('账号状态已更新');}));
     if(connected)controls.append(action('断开扩展',async()=>{await api('/admin/bridge/disconnect',{id:account.id});message('已断开扩展；Google 登录状态保留在浏览器。');}));
@@ -53,7 +55,7 @@ async function refresh(){
   }
   $('logs').replaceChildren();for(const item of logs.records){const tr=element('tr');for(const cell of [new Date(item.at).toLocaleString(),item.model||'—',item.stage||item.event,item.status||'—',item.durationMs!==undefined?(item.durationMs/1000).toFixed(2)+' s':'—',[item.code,item.message,item.requestId].filter(Boolean).join(' · ')])tr.append(element('td',String(cell)));$('logs').append(tr);}
 }
-$('login-form').addEventListener('submit',async event=>{event.preventDefault();token=$('key').value.trim();try{await refresh();$('key').value='';message('已连接。管理密钥仅保存在此页面内存中。');clearInterval(poll);poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),5000);}catch(e){token='';message(e.message,true);}});
+$('login-form').addEventListener('submit',async event=>{event.preventDefault();token=$('key').value.trim();try{await refresh();$('key').value='';message('管理端鉴权成功；能否调用请看账号的 Build 执行连接状态。');clearInterval(poll);poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),5000);}catch(e){token='';message(e.message,true);}});
 $('refresh').onclick=()=>perform($('refresh'),async()=>{});
 $('auto-connect').onclick=()=>perform($('auto-connect'),async()=>{await extension('probe');const capability=await api('/admin/bridge/automatic',{});await extension('start',{code:capability.code});message('已打开常用浏览器中的 Build。请完成 Google 登录，项目创建和接入会自动继续。');});
 $('cancel-onboarding').onclick=()=>perform($('cancel-onboarding'),async()=>{await extension('cancel');message('已取消后续接入步骤；已创建的项目保留。');});
