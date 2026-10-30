@@ -54,6 +54,15 @@ test('bridge isolates tabs, orders model events before results, and revokes dela
   assert.equal(bridge.online(a.account.id),false);assert.throws(()=>bridge.authenticate(a.token));assert.equal(bridge.online(b.account.id),true);
 });
 
+test('bridge reports classified identity failures without forwarding arbitrary browser error contents',async t=>{
+  const {bridge}=await setup(t);const connected=await register(bridge),session=bridge.authenticate(connected.token);
+  const send=bridge.sender(session),pending=send('Runtime.evaluate',{expression:'1'});
+  const batch=await bridge.exchange(session,{results:[],events:[]});
+  const rejected=assert.rejects(pending,e=>e.code==='identity_home_load_timeout'&&e.status===504&&!e.message.includes('PRIVATE'));
+  await bridge.exchange(session,{results:[{id:batch.commands[0].id,error:'PRIVATE_PROMPT_OR_COOKIE',code:'identity_home_load_timeout'}],events:[]});
+  await rejected;
+});
+
 test('extension never accepts remote services, login pages, conflicting account indices or unrelated network traffic',()=>{
   assert.equal(localBase('http://127.0.0.1:18787'),'http://127.0.0.1:18787');
   for(const bad of ['https://example.com','http://127.0.0.1.evil.invalid','http://name:pw@localhost/','http://localhost/path'])assert.throws(()=>localBase(bad));

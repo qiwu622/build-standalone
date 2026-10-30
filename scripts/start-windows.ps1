@@ -32,7 +32,11 @@ try {
   if ($LASTEXITCODE -ne 0) { throw '无法读取凭据文件路径' }
   Write-Host ('管理页：' + $Status.url)
   Write-Host ('API 地址：' + $Status.url + '/v1')
-  Write-Host ('管理密钥取 adminKey；API 密钥取 apiKey。文件：' + (Join-Path ($DataPath | Select-Object -Last 1) 'credentials.json'))
+  $CredentialPath = Join-Path ($DataPath | Select-Object -Last 1) 'credentials.json'
+  $CredentialValues = Get-Content -Raw -Encoding UTF8 -LiteralPath $CredentialPath | ConvertFrom-Json
+  if (-not $CredentialValues.adminKey) { throw '凭据文件缺少管理密钥' }
+  Write-Host ('管理页密码（adminKey）：' + $CredentialValues.adminKey) -ForegroundColor Green
+  Write-Host ('请只复制上面的密码内容。酒馆使用另一个 apiKey，保存在：' + $CredentialPath)
   Write-Host ('浏览器连接器目录：' + (Join-Path $ProjectRoot 'extensions\build-browser-bridge'))
   Write-Host '正在恢复已配对的 Build 项目。首次使用或更新旧连接器后，请在管理页接入一次。'
   if (-not $NoOpen) {

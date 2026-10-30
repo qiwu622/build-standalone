@@ -20,6 +20,7 @@ export class BuildExecutor {
       request.accountAvailable=this.browsers.online?id=>this.browsers.online(id):undefined;
       const text=await this.pool.run(input.resolved.model,request,async account=>{
         checkAbort(signal);request.accountId=account.id;
+        request.stage='account_verification';
         return this.browsers.withPage(account,signal,async send=>{
           const worker=new BuildChatWorker({cdp:action=>action(send),pool:this.pool,diagnostics:this.log});
           worker.current=request;worker.accountId=account.id;

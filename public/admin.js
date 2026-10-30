@@ -1,5 +1,8 @@
 let token='',poll=null,pairExpiry=0,extensionReady=false,autoDisabled=true;
 const $=id=>document.getElementById(id);
+const savedKeyName='build-standalone.adminKey';
+function forgetKey(){try{localStorage.removeItem(savedKeyName);}catch{}}
+try{$('key').value=localStorage.getItem(savedKeyName)||'';}catch{}
 const extensionWaiters=new Map();
 window.addEventListener('message',event=>{
   if(event.source!==window||event.origin!==location.origin||event.data?.channel!=='build-admin-response')return;
@@ -55,9 +58,10 @@ async function refresh(){
   }
   $('logs').replaceChildren();for(const item of logs.records){const tr=element('tr');for(const cell of [new Date(item.at).toLocaleString(),item.model||'—',item.stage||item.event,item.status||'—',item.durationMs!==undefined?(item.durationMs/1000).toFixed(2)+' s':'—',[item.code,item.message,item.requestId].filter(Boolean).join(' · ')])tr.append(element('td',String(cell)));$('logs').append(tr);}
 }
-$('login-form').addEventListener('submit',async event=>{event.preventDefault();token=$('key').value.trim();try{await refresh();$('key').value='';message('管理端鉴权成功；能否调用请看账号的 Build 执行连接状态。');clearInterval(poll);poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),5000);}catch(e){token='';message(e.message,true);}});
+$('login-form').addEventListener('submit',async event=>{event.preventDefault();token=$('key').value.trim();try{await refresh();if($('remember-key').checked){try{localStorage.setItem(savedKeyName,token);}catch{}}else forgetKey();$('key').value='';message('管理端鉴权成功；能否调用请看账号的 Build 执行连接状态。');clearInterval(poll);poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),5000);}catch(e){token='';message(e.message,true);}});
+$('remember-key').addEventListener('change',()=>{if(!$('remember-key').checked)forgetKey();});
 $('refresh').onclick=()=>perform($('refresh'),async()=>{});
 $('auto-connect').onclick=()=>perform($('auto-connect'),async()=>{await extension('probe');const capability=await api('/admin/bridge/automatic',{});await extension('start',{code:capability.code});message('已打开常用浏览器中的 Build。请完成 Google 登录，项目创建和接入会自动继续。');});
 $('cancel-onboarding').onclick=()=>perform($('cancel-onboarding'),async()=>{await extension('cancel');message('已取消后续接入步骤；已创建的项目保留。');});
 $('pair-browser').onclick=()=>perform($('pair-browser'),async()=>{const pair=await api('/admin/bridge/pairing',{});pairExpiry=pair.expiresAt;$('pair-code').textContent=pair.code;$('pair-expiry').textContent='有效期至 '+new Date(pair.expiresAt).toLocaleTimeString();$('pairing').hidden=false;message('请把配对码填入常用浏览器的 Build 本机连接器。无需管理员密钥或 Cookie。');});
-$('disconnect').onclick=()=>{token='';clearInterval(poll);pairExpiry=0;$('pair-code').textContent='';$('pairing').hidden=true;$('dashboard').hidden=true;$('auth').hidden=false;message('已退出');};
+$('disconnect').onclick=()=>{token='';forgetKey();$('key').value='';clearInterval(poll);pairExpiry=0;$('pair-code').textContent='';$('pairing').hidden=true;$('dashboard').hidden=true;$('auth').hidden=false;message('已退出，已清除本浏览器保存的管理密钥');};

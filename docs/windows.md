@@ -17,7 +17,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\build-setup.ps1"
 
 ## 2. 填管理密钥
 
-打开安装目录下的 `data\credentials.json`，把 `adminKey` 的值填到管理页。`apiKey` 留给酒馆等客户端，两者不可混用，也不要发给他人。
+安装或启动完成时，窗口会直接显示“管理页密码（adminKey）”，复制到管理页即可。登录成功后默认在当前浏览器保存，下次打开自动填写；可以取消“记住管理密钥”，点击“退出管理端”也会清除保存。`apiKey` 留给酒馆，仍从安装目录的 `data\credentials.json` 获取，两者不可混用。
 
 ## 3. 第一次安装连接器
 

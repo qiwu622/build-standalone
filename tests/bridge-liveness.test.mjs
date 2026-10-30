@@ -3,6 +3,25 @@ import assert from 'node:assert/strict';
 import {BridgeClient} from '../extensions/build-browser-bridge/client.mjs';
 import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
 
+test('account proof reads only the fresh Google homepage when its content-script receiver is unavailable',async()=>{
+ let url,removed=0,injected=0;
+ const chrome={tabs:{create:async options=>{url=options.url;return {id:8};},get:async()=>({url,status:'complete'}),sendMessage:async()=>{throw new Error('Receiving end does not exist');},remove:async()=>{removed++;}},scripting:{executeScript:async options=>{
+  injected++;assert.deepEqual(options.target,{tabId:8,frameIds:[0]});
+  return [{frameId:0,result:{url,authUser:'0',accountControlFound:true,email:'test@example.invalid'}}];
+ }}};
+ const client=new BridgeClient({chrome});
+ const identity=await client.probeAccount('0',{force:true,deadline:Date.now()+1500});
+ assert.equal(identity.email,'test@example.invalid');assert.equal(injected,1);assert.equal(removed,1);
+});
+
+test('account proof stops at a Google sign-in redirect without executing a reader or generating',async()=>{
+ let reads=0,removed=0;
+ const chrome={tabs:{create:async()=>({id:8}),get:async()=>({url:'https://accounts.google.com/ServiceLogin',status:'complete'}),sendMessage:async()=>{reads++;return null;},remove:async()=>{removed++;}},scripting:{executeScript:async()=>{throw new Error('must not inject on login');}}};
+ const client=new BridgeClient({chrome});
+ await assert.rejects(client.probeAccount('0',{force:true,deadline:Date.now()+800}),e=>e.code==='identity_login_required');
+ assert.equal(reads,0);assert.equal(removed,1);
+});
+
 test('a hung Chrome command releases the stale local connection so saved-project recovery can run',async t=>{
  const target='https://aistudio.google.com/apps/test?authuser=0';
  let detached=0,commands=0,exchanges=0;

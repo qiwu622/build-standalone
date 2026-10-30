@@ -1,8 +1,9 @@
-import {localBase,project,identityExpression,allowedCommands,filterEvent} from './protocol.mjs';
+import {localBase,project,identityExpression,readBuildIdentity,allowedCommands,filterEvent} from './protocol.mjs';
+import {bridgeFailure,identityFailure} from './failures.mjs';
 
 export class BridgeClient {
   constructor({chrome,fetcher=(...args)=>globalThis.fetch(...args)}){this.chrome=chrome;this.fetcher=fetcher;this.links=new Map();this.connecting=new Set();this.accountProofs=new Map();this.lastError='';}
-  async probeAccount(authUser,{force=false,deadline=Date.now()+20000,signal}={}){
+  async probeAccount(authUser,{force=false,deadline=Date.now()+55000,signal}={}){
     signal?.throwIfAborted();
     authUser=String(authUser);if(!/^\d{1,2}$/.test(authUser))throw new Error('Google 账号索引无效');
     const cached=this.accountProofs.get(authUser);
@@ -11,31 +12,45 @@ export class BridgeClient {
     // The editor has no account button. Verify on a fresh, background Build
     // home tab in the same browser/account slot; never trust a remembered email.
     const tab=await this.chrome.tabs.create({url:'https://aistudio.google.com/apps?hl=en&authuser='+authUser,active:false});
+    let lastIdentity,readerResponded=false,lastStatus;
     try{
       signal?.throwIfAborted();
       while(Date.now()<deadline-500){
         signal?.throwIfAborted();
+        const before=await this.chrome.tabs.get(tab.id);signal?.throwIfAborted();
+        const beforeURL=new URL(before.url||'about:blank');lastStatus=before.status;
+        if(beforeURL.protocol==='https:'&&beforeURL.hostname==='accounts.google.com')throw identityFailure('identity_login_required');
+        if(beforeURL.href==='about:blank'){await new Promise(r=>setTimeout(r,250));continue;}
+        const validHome=u=>u.protocol==='https:'&&u.hostname==='aistudio.google.com'&&!u.port&&!u.username&&!u.password&&/^\/(?:u\/\d+\/)?apps\/?$/.test(u.pathname)&&(/^\/u\/(\d+)\//.exec(u.pathname)?.[1]||u.searchParams.get('authuser')||'0')===authUser;
+        if(!validHome(beforeURL))throw identityFailure('identity_page_changed');
         let identity;
         try{identity=await this.chrome.tabs.sendMessage(tab.id,{action:'build-read-identity'},{frameId:0});}catch{/* content script may still be loading */}
         signal?.throwIfAborted();
+        if(!identity&&this.chrome.scripting?.executeScript){
+          // Passive fallback on this newly-created, account-bound homepage only.
+          // Avoid depending on a content-script receiver that may not be ready.
+          try{const results=await this.chrome.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},func:readBuildIdentity});identity=results.find(r=>r.frameId===0)?.result;}catch{/* navigation may still be settling */}
+          signal?.throwIfAborted();
+        }
         if(identity){
+          lastIdentity=identity;readerResponded=true;
           const actual=await this.chrome.tabs.get(tab.id),u=new URL(actual.url);
           signal?.throwIfAborted();
           const index=/^\/u\/(\d+)\//.exec(u.pathname)?.[1]||u.searchParams.get('authuser')||'0';
-          if(u.protocol!=='https:'||u.hostname!=='aistudio.google.com'||u.port||u.username||u.password||!/^\/(?:u\/\d+\/)?apps\/?$/.test(u.pathname)||index!==authUser||identity.url!==actual.url||identity.authUser!==authUser)throw new Error('Google 账号核对页面发生变化');
-          if(identity.accountAmbiguous)throw new Error('Google 账号标识不唯一，请关闭账号切换菜单');
+          if(!validHome(u)||index!==authUser||identity.url!==actual.url||identity.authUser!==authUser)throw identityFailure('identity_page_changed');
+          if(identity.accountAmbiguous)throw identityFailure('identity_ambiguous');
           if(identity.accountControlFound&&identity.email){
             this.accountProofs.set(authUser,{at:Date.now(),identity});return identity;
           }
         }
         await new Promise(resolve=>setTimeout(resolve,250));
       }
-      throw new Error('Build 主页账号核对超时，请确认 Google 登录或官方验证已完成后重新接入');
+      throw identityFailure(readerResponded?(lastIdentity?.accountControlFound?'identity_email_missing':'identity_control_missing'):lastStatus==='complete'?'identity_reader_unavailable':'identity_home_load_timeout');
     }finally{await this.chrome.tabs.remove(tab.id).catch(()=>{});}
   }
   async readIdentity(tabId,{force=false,deadline,signal}={}){
     signal?.throwIfAborted();
-    deadline??=Date.now()+45000;
+    deadline??=Date.now()+55000;
     const tab=await this.chrome.tabs.get(tabId),target=project(tab.url);
     signal?.throwIfAborted();
     let result=await this.chrome.debugger.sendCommand({tabId},'Runtime.evaluate',{expression:identityExpression,returnByValue:true});
@@ -61,7 +76,7 @@ export class BridgeClient {
     }
     const identity=result.result?.value;
     if(identity?.accountAmbiguous)throw new Error('Google 账号标识不唯一');
-    if(!identity?.ready||project(identity.url).url!==target.url)throw new Error('专用 Build 项目尚未就绪');
+    if(!identity?.ready||project(identity.url).url!==target.url)throw identityFailure('project_not_ready');
     if(!identity.email){
       const proof=await this.probeAccount(target.authUser,{force,deadline,signal});
       Object.assign(identity,{email:proof.email,hasPlan:proof.hasPlan,identitySource:'build-home'});
@@ -80,7 +95,7 @@ export class BridgeClient {
     const tab=await this.chrome.tabs.get(tabId),target=project(tab.url);this.connecting.add(tabId);let attached=false,session;
     try{
       await this.chrome.debugger.attach({tabId},'1.3');attached=true;
-      const result=await this.readIdentity(tabId,{force:true,deadline:Date.now()+45000});
+      const result=await this.readIdentity(tabId,{force:true,deadline:Date.now()+55000});
       const identity=result.result?.value;
       if(!identity?.ready||!identity.email||project(identity.url).url!==target.url)throw new Error('请先正常登录 Google，打开专用 Build 项目并等待聊天输入框出现');
       if(expectedEmail&&identity.email.toLowerCase()!==expectedEmail.toLowerCase())throw new Error('Google 当前账号与自动接入账号不一致，请重新登录');
@@ -138,7 +153,7 @@ export class BridgeClient {
       for(const command of batch.commands||[]){
         if(s.closed)break;
         try{results.push(await this.command(s,command));}
-        catch(e){if(e.code==='browser_command_timeout')throw e;results.push({id:command.id,error:'专用标签页状态或浏览器命令异常，请检查页面',code:'browser_command_failed'});this.lastError=e.message;}
+        catch(e){if(e.code==='browser_command_timeout')throw e;const detail=bridgeFailure(e.code);results.push({id:command.id,error:detail?.message||'专用标签页状态或浏览器命令异常，请检查页面',code:detail?e.code:'browser_command_failed'});this.lastError=e.message;}
       }
     }}catch(e){if(!s.closed){this.lastError=e.message;await this.disconnect(s.tabId);}}
   }

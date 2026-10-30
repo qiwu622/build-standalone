@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Build 独立服务</title><link rel="stylesheet" href="/style.css"><script type="module" src="/admin.js"></script></head>
 <body><main>
 <header><div><span class="eyebrow">BUILD / STANDALONE</span><h1>Build 独立服务</h1><p>账号、调用状态与接入管理</p></div><span id="mode" class="badge">未连接</span></header>
-<section id="auth"><h2>连接管理端</h2><form id="login-form"><label for="key">管理密钥</label><div class="row"><input id="key" type="password" autocomplete="off" placeholder="填写 credentials.json 中的 adminKey" required><button>连接</button></div></form><p class="hint">密钥仅保存在此页面内存中，刷新后需重新输入。API 使用单独的 apiKey。</p></section>
+<section id="auth"><h2>连接管理端</h2><form id="login-form"><label for="key">管理密钥</label><div class="row"><input id="key" type="password" autocomplete="off" placeholder="填写安装窗口显示的管理密钥" required><button>连接</button></div><label><input id="remember-key" type="checkbox" checked> 在此浏览器记住管理密钥</label></form><p class="hint">登录成功后默认保存，下次自动填写。点击“退出管理端”会清除保存的密钥。API 使用单独的 apiKey。</p></section>
 <div id="message" role="status" aria-live="polite"></div>
 <div id="dashboard" hidden>
 <section class="metrics"><div><span>执行状态</span><strong id="busy">—</strong></div><div><span>排队请求</span><strong id="queued">0</strong></div><div><span>返回方式</span><strong>完成后返回</strong></div><div><span>Google 真实验收</span><strong>需独立验收</strong></div></section>

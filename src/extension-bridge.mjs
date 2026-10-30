@@ -3,6 +3,7 @@ import {buildAppForAccount} from './build-chat.mjs';
 import {error,checkAbort,safeFailure} from './errors.mjs';
 import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
 import {BridgeGrants} from './bridge-grants.mjs';
+import {bridgeFailure} from '../extensions/build-browser-bridge/failures.mjs';
 
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);};
 const lost=()=>error('浏览器扩展已断开；请在常用浏览器的专用 Build 标签页重新连接',503,'extension_disconnected');
@@ -67,7 +68,7 @@ export class ExtensionBridge {
     // Events precede command results, so a completed DOM read cannot race the
     // actual Google model/thinking metadata that was emitted during that read.
     for(const event of events)if(eventNames.has(event?.method))for(const fn of session.listeners)fn({...event,sessionId:'page'});
-    for(const result of results){const p=session.pending.get(result?.id);if(!p)continue;session.pending.delete(result.id);clearTimeout(p.timer);if(result.error)p.reject(error('浏览器扩展执行失败：'+String(result.error).slice(0,160),502,'extension_command_failed'));else p.resolve(result.value);}
+    for(const result of results){const p=session.pending.get(result?.id);if(!p)continue;session.pending.delete(result.id);clearTimeout(p.timer);if(result.error){const detail=bridgeFailure(result.code);p.reject(detail?error(detail.message,detail.status,result.code):error('浏览器扩展执行失败：专用标签页状态或浏览器命令异常，请检查页面',502,'extension_command_failed'));}else p.resolve(result.value);}
     if(!session.queue.length&&!session.closed)await new Promise(resolve=>{
       const done=()=>{clearTimeout(timer);signal?.removeEventListener('abort',done);session.waiter=null;resolve();};
       const timer=setTimeout(done,this.pollTimeout);session.waiter=done;signal?.addEventListener('abort',done,{once:true});if(signal?.aborted)done();
@@ -81,7 +82,7 @@ export class ExtensionBridge {
       if(!commands.has(method))return Promise.reject(error('扩展不允许此浏览器命令',400,'command_denied'));
       if(session.pending.size>=8)return Promise.reject(error('扩展命令积压，请重新连接',503,'extension_busy'));
       const id=randomBytes(12).toString('hex');
-      const timeout=method==='Runtime.evaluate'&&params.expression===identityExpression?Math.max(this.commandTimeout,25000):this.commandTimeout;
+      const timeout=method==='Runtime.evaluate'&&params.expression===identityExpression?Math.max(this.commandTimeout,55000):this.commandTimeout;
       return new Promise((resolve,reject)=>{
         const timer=setTimeout(()=>{session.pending.delete(id);reject(error('浏览器命令等待超时；连接将自动恢复，本次请求不会重发',504,'browser_command_timeout'));this.disconnect(session);},timeout);
         session.pending.set(id,{resolve,reject,timer});session.queue.push({id,method,params,deadline:this.now()+timeout});session.waiter?.();

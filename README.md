@@ -53,7 +53,7 @@ npm run start:background
 
 默认管理页 `http://127.0.0.1:8787`，端口在 `config.json` 修改；以本机配置为准。安装会初始化独立密钥、安装依赖和执行离线测试，**不再下载 Chromium，也不调用 Google 模型**。`-SkipBrowserDownload` / `--skip-browser` 保留为兼容参数。旧浏览器模块及通用 Playwright 依赖保留用于历史回归，当前服务入口不调用它们。
 
-`data/credentials.json` 中 `adminKey` 用于管理页，`apiKey` 用于 API。密钥不打印到服务日志中。安装器不覆盖配置、密钥或账号记录。Windows 限制数据目录到当前用户；Linux 使用 0700/0600 权限。
+`data/credentials.json` 中 `adminKey` 用于管理页，`apiKey` 用于 API。Windows 安装/启动窗口会直接显示管理密钥，服务日志不记录密钥。管理页默认在当前浏览器保存登录成功的管理密钥，刷新后自动填写，退出时清除；也可取消记住。安装器不覆盖配置、密钥或账号记录。Windows 限制数据目录到当前用户；Linux 使用 0700/0600 权限。
 
 ## 登录与扩展连接
 
