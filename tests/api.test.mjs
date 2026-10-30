@@ -99,3 +99,12 @@ test('logs redact prompts, answers, auth and arbitrary diagnostic fields',async 
   const text=JSON.stringify(await f.log.recent());for(const secret of ['PROMPT_SECRET','ANSWER_SECRET','COOKIE_SECRET',f.credentials.apiKey,body.messages[1].content])assert.ok(!text.includes(secret));
   const admin=await (await f.call('/admin/state',undefined,{key:f.credentials.adminKey})).text();assert.ok(!admin.includes(f.credentials.apiKey));
 });
+test('API connection key is available only through authenticated admin access and is never cached or logged',async t=>{
+  const f=await fixture(t);
+  for(const key of ['',f.credentials.apiKey])assert.equal((await f.call('/admin/client-config',undefined,{key})).status,401);
+  const response=await f.call('/admin/client-config',undefined,{key:f.credentials.adminKey});
+  assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.deepEqual(await response.json(),{apiKey:f.credentials.apiKey});
+  for(const path of ['/','/admin.js'])assert.ok(!(await(await fetch(f.url+path)).text()).includes(f.credentials.apiKey));
+  assert.ok(!JSON.stringify(await f.log.recent()).includes(f.credentials.apiKey));
+});

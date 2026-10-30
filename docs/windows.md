@@ -17,7 +17,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\build-setup.ps1"
 
 ## 2. 填管理密钥
 
-安装或启动完成时，窗口会直接显示“管理页密码（adminKey）”，复制到管理页即可。登录成功后默认在当前浏览器保存，下次打开自动填写；可以取消“记住管理密钥”，点击“退出管理端”也会清除保存。`apiKey` 留给酒馆，仍从安装目录的 `data\credentials.json` 获取，两者不可混用。
+安装或启动完成时，窗口会直接显示“管理页密码（adminKey）”，复制到管理页即可。登录成功后默认在当前浏览器保存，下次打开自动填写；可以取消“记住管理密钥”，点击“退出管理端”也会清除保存。登录后，在“API 接入”卡片复制 API 地址和 `apiKey` 给酒馆使用；点击“显示”可查看完整 API 密钥。管理密钥与 API 密钥不可混用。
 
 ## 3. 第一次安装连接器
 
@@ -38,8 +38,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\build-setup.ps1"
 
 ## 5. 客户端填写
 
-- Base URL：管理页显示的地址加 `/v1`。
-- API Key：凭据文件的 `apiKey`。
+- Base URL：管理页“API 接入”中的“复制地址”（已包含 `/v1`，不要重复添加）。
+- API Key：同一卡片中的“复制密钥”。
 - 模型：从客户端读取模型列表，例如 `gemini-4-argon-high`。
 
 同一个浏览器扩展已内置酒馆预设分流，无需另装第二个扩展。旧酒馆扩展先禁用并刷新，详见 [酒馆适配教程](sillytavern.md)。本版本的 SSE 是完整答案完成后返回，尚不是真正逐 token 流式。

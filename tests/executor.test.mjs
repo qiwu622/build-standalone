@@ -5,20 +5,41 @@ import {body} from './helpers.mjs';
 import {parseCompletion} from '../src/protocol.mjs';
 import {encodeEnvelope} from '../extensions/build-standalone-adapter/transport.js';
 
-function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUser='0',wire=true,context=false,cleanupFails=false,text='VERIFIED',apiBody,threshold}={}) {
+function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUser='0',wire=true,context=false,cleanupFails=false,text='VERIFIED',apiBody,threshold,initialState}={}) {
   const listeners=new Set(),events=[],request={};const input=parseCompletion(apiBody||{...body,model:'gemini-4-argon-'+level});
   const send=async()=>({});send.onEvent=fn=>{listeners.add(fn);return()=>listeners.delete(fn);};
   const worker=new BuildChatWorker({cdp:fn=>fn(send),responseSettleMs:1,pollInterval:2,contextThreshold:threshold??(context?1:96*1024)});
-  worker.current=request;worker.context=async()=>{};worker.wait=async()=>({ready:true,count:0,running:false});
-  worker.click=async(_send,_sid,label)=>events.push(label);worker.configureThinking=async(_send,_sid,value)=>events.push('thinking:'+value);
+  worker.current=request;worker.context=async()=>{};if(!initialState)worker.wait=async()=>({ready:true,count:0,running:false});
+  let page=initialState,submitted=false;
+  worker.click=async(_send,_sid,label)=>{events.push(label);if(initialState&&label==='Start new chat')page={ready:true,count:0,running:false,error:'',pageError:'',responseError:''};};worker.configureThinking=async(_send,_sid,value)=>events.push('thinking:'+value);
   let ctx,composer;
-  worker.evaluate=async(_send,_sid,script)=>script.includes('using your Google AI subscription')?true:script.includes('const responses')?{ready:true,count:1,running:false,text:ctx?ctx.marker+'\n'+text:text,header:'Gemini 4 Argon'}:null;
-  worker.fillAndSend=async(_send,_sid,prompt)=>{composer=prompt;events.push('Send');if(!wire)return;const data=Array(19).fill(null);data[7]='models/'+wireModel;data[18]=[null,null,null,{low:1,medium:2,high:3}[wireLevel]];
+  worker.evaluate=async(_send,_sid,script)=>script.includes('using your Google AI subscription')?true:script.includes('const responses')?(page&&!submitted?page:{ready:true,count:1,running:false,text:ctx?ctx.marker+'\n'+text:text,header:'Gemini 4 Argon'}):null;
+  worker.fillAndSend=async(_send,_sid,prompt)=>{composer=prompt;events.push('Send');submitted=true;if(!wire)return;const data=Array(19).fill(null);data[7]='models/'+wireModel;data[18]=[null,null,null,{low:1,medium:2,high:3}[wireLevel]];
     for(const fn of listeners)fn({sessionId:'page',method:'Network.requestWillBeSent',params:{requestId:'fixture',request:{method:'POST',url:'https://alkalimakersuite-pa.clients6.google.com/CodeAssistantOffline',headers:{'x-goog-authuser':wireUser},postData:JSON.stringify(data)}}});
   };
   if(context)worker.contextTransport={clear:async(_s,_sid,options)=>{events.push('clear');if(options&&cleanupFails)throw new Error('cleanup failed');},upload:async(_s,_sid,value)=>{ctx=value;value.uploadStarted=true;events.push('upload');}};
   return {events,request,worker,get context(){return ctx;},get composer(){return composer;},run:()=>worker.generateOne(input.alias,input.body,request)};
 }
+
+const googlePolicyRefusal="error\nThe model output could not be generated. This output contains sensitive words that violate Google's [Generative AI Prohibited Use policy](https://policies.google.com/terms/generative-ai/use-policy).";
+const previousRefusal={ready:true,count:1,running:false,error:googlePolicyRefusal,pageError:'',responseError:googlePolicyRefusal};
+test('a previous chat policy error is cleared before a distinct new request uploads files',async()=>{
+  const f=fixture({initialState:previousRefusal,context:true});
+  assert.equal(await f.run(),'VERIFIED');
+  assert.ok(f.events.indexOf('Start new chat')<f.events.indexOf('upload'));
+  assert.equal(f.events.filter(x=>x==='Send').length,1);
+});
+test('preflight still blocks global page errors and previous quota errors without sending',async()=>{
+  for(const state of [{...previousRefusal,pageError:'Sign in required'}, {...previousRefusal,error:'Quota exceeded',responseError:'Quota exceeded'}]){
+    const f=fixture({initialState:state});await assert.rejects(f.run(),e=>e.code==='google_page_error');assert.ok(!f.events.includes('Send'));
+  }
+});
+test('a Google policy error from the new request is classified and never automatically retried',async()=>{
+  const f=fixture(),evaluate=f.worker.evaluate;
+  f.worker.evaluate=async(...args)=>args[2].includes('const responses')?{ready:true,count:1,running:false,error:googlePolicyRefusal}:evaluate(...args);
+  await assert.rejects(f.run(),e=>e.status===422&&e.code==='content_refused');
+  assert.equal(f.events.filter(x=>x==='Send').length,1);
+});
 
 test('configured request deadline permits a slow reply past the old 150 second cutoff',async t=>{
   t.mock.timers.enable({apis:['Date'],now:1000000});

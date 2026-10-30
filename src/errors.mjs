@@ -15,6 +15,7 @@ export function safeFailure(code) {
 }
 export function isContentRefusal(value) {
   const text=String(value).trimStart().slice(0,1600);
+  if(/The model output could not be generated\./i.test(text)&&/sensitive words/i.test(text)&&/Generative AI Prohibited Use policy/i.test(text))return true;
   return /^(?:I (?:cannot|can't|am unable to)|I'm (?:sorry|unable to)|Sorry[,，]|抱歉|对不起|我(?:无法|不能))/i.test(text)
     && /safety polic|content polic|sexually explicit|adult erotica|安全政策|内容政策|露骨.{0,8}(?:色情|性内容)/i.test(text);
 }

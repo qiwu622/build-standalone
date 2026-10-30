@@ -102,6 +102,7 @@ export function createService({config,credentials,executor,store,pool,browsers,l
       }
       if(req.method==='GET'&&path==='/admin/state')return json(res,200,{instanceId,mode:demo?'demo':'live',busy:scheduler.busy||adminBusy,queued:scheduler.queue.length,accounts:store.accounts,pool:pool.snapshot(),login:browsers?.login?{id:browsers.login.id,startedAt:browsers.login.startedAt}:null,connectionMode:browsers?.pairing?'extension':'legacy',connections:browsers?.snapshot?.()||[],streaming:'buffered',upstreamVerified:false});
       if(req.method==='GET'&&path==='/admin/logs')return json(res,200,{records:await log.recent()});
+      if(req.method==='GET'&&path==='/admin/client-config')return json(res,200,{apiKey:credentials.apiKey});
       if(req.method==='POST'&&path==='/admin/bridge/automatic') {
         await readBody(req,1024);if(demo||!browsers?.pairing)throw error('此实例不支持扩展接入',409);
         return json(res,200,await adminOperation(()=>browsers.pairing({automatic:true})));

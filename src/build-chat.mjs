@@ -82,8 +82,10 @@ export const snapshotScript = `(() => {
     };
     const header = response?.parentElement?.querySelector('.turn-header')?.innerText || '';
     const send = document.querySelector('button[aria-label="Send"]');
-    const error = [...document.querySelectorAll('[role="alert"], [role="alertdialog"], .error-message, .error-container, ms-console-assistant-response [class*="error"]')].map(e=>e.innerText).filter(Boolean).join(' ').slice(0,16000);
-    return { count: responses.length, text: bubbles.map(md).join('\\n\\n').trim(), running, header, error,
+    const errorNodes = [...document.querySelectorAll('[role="alert"], [role="alertdialog"], .error-message, .error-container, ms-console-assistant-response [class*="error"]')];
+    const errorText = nodes => nodes.map(e=>e.innerText).filter(Boolean).join(' ').slice(0,16000);
+    const error = errorText(errorNodes), pageError = errorText(errorNodes.filter(e=>!e.closest('ms-console-assistant-response'))), responseError = errorText(errorNodes.filter(e=>e.closest('ms-console-assistant-response')));
+    return { count: responses.length, text: bubbles.map(md).join('\\n\\n').trim(), running, header, error, pageError, responseError,
         ready: !!document.querySelector(${JSON.stringify(composerSelector('Make changes, add new features, ask for anything'))}),
         initializing: !!document.querySelector(${JSON.stringify(composerSelector('Describe an app and let Gemini do the rest'))}),
         canSend: !!send && !send.disabled && send.getAttribute('aria-disabled') !== 'true',
@@ -117,12 +119,13 @@ export class BuildChatWorker {
         if(!page?.email || !expected?.email || page.email.toLowerCase()!==expected.email.toLowerCase() || page.authUser!==(expected.auth_user||'0'))throw safeFailure('account_mismatch');
         await this.log('account_context',{reason:JSON.stringify({phase,path:page?.path,authUser:page?.authUser,expectedAuthUser:expected?.auth_user,identityMatches:page?.email&&expected?.email?page.email.toLowerCase()===expected.email.toLowerCase():null})},request);
     }
-    async wait(send, sid, predicate, timeout = 12000) {
+    async wait(send, sid, predicate, timeout = 12000, {allowPreviousRefusal=false}={}) {
         const until = this.current?.deadline===Infinity?Infinity:Date.now()+timeout;
         do {
             this.aborted(this.current);
             const state = await this.evaluate(send, sid, snapshotScript);
-            if(state?.error)throw failure('Google Build 页面返回错误',502,'google_page_error');
+            const previousRefusal=allowPreviousRefusal&&!this.current?.submitted&&state?.ready&&!state.running&&!state.pageError&&state.responseError&&isContentRefusal(state.responseError);
+            if(state?.error&&!previousRefusal)throw failure('Google Build 页面返回错误',502,'google_page_error');
             if (predicate(state)) return state;
             await sleep(350);
         } while (Date.now() < until);
@@ -208,7 +211,16 @@ export class BuildChatWorker {
                 }
             });
             await send('Network.enable',{},sid);
-            request.stage='wait_ready';await this.log('request_stage',{},request);let state = await this.wait(send, sid, s=>s.ready,45000);
+            request.stage='wait_ready';await this.log('request_stage',{},request);let state = await this.wait(send, sid, s=>s.ready,45000,{allowPreviousRefusal:true});
+            // A previous conversation's policy refusal is not the outcome of
+            // this distinct, unsent request. Preserve the refusal in history,
+            // open a clean chat, and require all errors to clear before uploads.
+            if(state.error){
+                await this.context(send,sid,'before_previous_refusal_reset',request);
+                await this.click(send,sid,'New chat');await this.click(send,sid,'Start new chat');
+                state=await this.wait(send,sid,s=>s.ready&&!s.running&&s.count===0);
+                await this.log('previous_refusal_cleared',{code:'previous_content_refused'},request);
+            }
             // Offline Build tasks can outlive a browser restart. Cancel only the
             // dedicated proxy app's orphaned task before starting a fresh chat.
             if(state.running) {

@@ -71,7 +71,9 @@ npm run start:background
 
 ## API 与酒馆
 
-Base URL 默认 `http://127.0.0.1:8787/v1`，Bearer `apiKey`。实现 `GET /v1/models` 与 `POST /v1/chat/completions`。示例：
+登录管理页后，在“API 接入”卡片复制 API 地址和 API 密钥。密钥默认隐藏，点击“显示”可查看；退出管理端后会清除页面中的 API 密钥。不要把管理密钥填到聊天客户端。
+
+Base URL 默认 `http://127.0.0.1:8787/v1`，安装脚本可能使用其他空闲端口，以管理页显示的实际地址为准。Bearer 使用 `apiKey`。实现 `GET /v1/models` 与 `POST /v1/chat/completions`。示例：
 
 ```powershell
 $Credentials = Get-Content -Raw .\data\credentials.json | ConvertFrom-Json

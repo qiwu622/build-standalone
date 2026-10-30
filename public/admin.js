@@ -25,9 +25,15 @@ async function extensionState(){
   }catch(e){extensionReady=false;$('extension-status').textContent=e.message;$('cancel-onboarding').hidden=true;return false;}
 }
 function message(text,bad=false){$('message').textContent=text;$('message').className=bad?'error':'';}
+function clearApiAccess(){ $('api-key').value='';$('api-key').type='password';$('toggle-api-key').textContent='显示';$('toggle-api-key').setAttribute('aria-pressed','false'); }
+async function copyAccess(id,label){
+  if(!$(id).value)return message('请先连接管理端',true);
+  try{await navigator.clipboard.writeText($(id).value);message(label+'已复制');}
+  catch{$(id).focus();$(id).select();message('自动复制不可用，已选中'+label+'，请手动复制。',true);}
+}
 async function api(path,body){
   const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
-  const value=await response.json();if(!response.ok)throw new Error(value.error?.message||'请求失败');return value;
+  const value=await response.json();if(!response.ok){if(response.status===401)clearApiAccess();throw new Error(value.error?.message||'请求失败');}return value;
 }
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(className)node.className=className;return node;}
 function action(label,fn){const b=element('button',label,'secondary');b.addEventListener('click',()=>perform(b,fn));return b;}
@@ -37,7 +43,7 @@ async function refresh(){
   const [state,logs]=await Promise.all([api('/admin/state'),api('/admin/logs')]);
   $('mode').textContent=state.mode==='demo'?'DEMO · 未调用 Google':'LIVE';$('dashboard').hidden=false;$('auth').hidden=true;
   $('busy').textContent=state.busy?'执行中':'空闲';$('queued').textContent=state.queued;
-  $('pair-browser').disabled=state.busy||state.mode==='demo';$('base-url').textContent=location.origin+'/v1';$('bridge-url').textContent=location.origin;
+  $('pair-browser').disabled=state.busy||state.mode==='demo';$('base-url').value=location.origin+'/v1';$('bridge-url').textContent=location.origin;
   const onboardingActive=await extensionState();autoDisabled=!extensionReady||state.busy||state.mode==='demo'||onboardingActive;$('auto-connect').disabled=autoDisabled;
   $('pair-browser').disabled=state.busy||state.mode==='demo'||onboardingActive;
   if(pairExpiry&&Date.now()>pairExpiry){$('pairing').hidden=true;$('pair-code').textContent='';pairExpiry=0;}
@@ -58,10 +64,13 @@ async function refresh(){
   }
   $('logs').replaceChildren();for(const item of logs.records){const tr=element('tr');for(const cell of [new Date(item.at).toLocaleString(),item.model||'—',item.stage||item.event,item.status||'—',item.durationMs!==undefined?(item.durationMs/1000).toFixed(2)+' s':'—',[item.code,item.message,item.requestId].filter(Boolean).join(' · ')])tr.append(element('td',String(cell)));$('logs').append(tr);}
 }
-$('login-form').addEventListener('submit',async event=>{event.preventDefault();token=$('key').value.trim();try{await refresh();if($('remember-key').checked){try{localStorage.setItem(savedKeyName,token);}catch{}}else forgetKey();$('key').value='';message('管理端鉴权成功；能否调用请看账号的 Build 执行连接状态。');clearInterval(poll);poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),5000);}catch(e){token='';message(e.message,true);}});
+$('login-form').addEventListener('submit',async event=>{event.preventDefault();token=$('key').value.trim();clearApiAccess();try{const access=await api('/admin/client-config');await refresh();$('api-key').value=access.apiKey;if($('remember-key').checked){try{localStorage.setItem(savedKeyName,token);}catch{}}else forgetKey();$('key').value='';message('管理端鉴权成功；能否调用请看账号的 Build 执行连接状态。');clearInterval(poll);poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),5000);}catch(e){token='';clearApiAccess();message(e.message,true);}});
+$('copy-base-url').onclick=()=>copyAccess('base-url','API 地址');
+$('copy-api-key').onclick=()=>copyAccess('api-key','API 密钥');
+$('toggle-api-key').onclick=()=>{const show=$('api-key').type==='password';$('api-key').type=show?'text':'password';$('toggle-api-key').textContent=show?'隐藏':'显示';$('toggle-api-key').setAttribute('aria-pressed',String(show));};
 $('remember-key').addEventListener('change',()=>{if(!$('remember-key').checked)forgetKey();});
 $('refresh').onclick=()=>perform($('refresh'),async()=>{});
 $('auto-connect').onclick=()=>perform($('auto-connect'),async()=>{await extension('probe');const capability=await api('/admin/bridge/automatic',{});await extension('start',{code:capability.code});message('已打开常用浏览器中的 Build。请完成 Google 登录，项目创建和接入会自动继续。');});
 $('cancel-onboarding').onclick=()=>perform($('cancel-onboarding'),async()=>{await extension('cancel');message('已取消后续接入步骤；已创建的项目保留。');});
 $('pair-browser').onclick=()=>perform($('pair-browser'),async()=>{const pair=await api('/admin/bridge/pairing',{});pairExpiry=pair.expiresAt;$('pair-code').textContent=pair.code;$('pair-expiry').textContent='有效期至 '+new Date(pair.expiresAt).toLocaleTimeString();$('pairing').hidden=false;message('请把配对码填入常用浏览器的 Build 本机连接器。无需管理员密钥或 Cookie。');});
-$('disconnect').onclick=()=>{token='';forgetKey();$('key').value='';clearInterval(poll);pairExpiry=0;$('pair-code').textContent='';$('pairing').hidden=true;$('dashboard').hidden=true;$('auth').hidden=false;message('已退出，已清除本浏览器保存的管理密钥');};
+$('disconnect').onclick=()=>{token='';forgetKey();clearApiAccess();$('key').value='';clearInterval(poll);pairExpiry=0;$('pair-code').textContent='';$('pairing').hidden=true;$('dashboard').hidden=true;$('auth').hidden=false;message('已退出，已清除本浏览器保存的管理密钥');};
