@@ -103,8 +103,8 @@ test('actual extension reads final presets despite late edits and an unrelated i
  const oai={chat_completion_source:source,openai_model:model,reverse_proxy:'http://127.0.0.1:18787/v1',custom_model:model,squash_system_messages:false,prompts:[{identifier:'main'},{identifier:'worldInfoBefore',marker:true}]};
  const manager={serviceSettings:oai,preparePrompt:p=>({...p})};
  const context={extensionSettings:{build_standalone_adapter:{enabled:true}},chat:[{role:'user',content:'CURRENT'}],getTokenCountAsync:async()=>50,eventTypes:{GENERATION_STARTED:'start',CHAT_COMPLETION_PROMPT_READY:'prepared',GENERATE_AFTER_DATA:'final',CHAT_COMPLETION_SETTINGS_READY:'send',APP_READY:'ready'},eventSource:{on:(event,fn)=>handlers.set(event,fn),makeLast:(event,fn)=>handlers.set(event,fn)}};
- const code=(await readFile(new URL('../extensions/build-standalone-adapter/index.js',import.meta.url),'utf8')).replace(/^import .*;\r?\n/gm,'');
- vm.runInNewContext(code,{...transport,getContext:()=>context,oai_settings:oai,promptManager:manager,setOpenAIMessages:chat=>chat,crypto:webcrypto,document:{querySelector:()=>null},toastr:{error:message=>errors.push(message)}});
+ const code=(await readFile(new URL('../extensions/build-standalone-adapter/runtime.js',import.meta.url),'utf8')).replace(/^import .*;\r?\n/gm,'').replace('export function','function')+'\ninstallSillyTavern({getContext,openAI,owner:"browser"});';
+ vm.runInNewContext(code,{...transport,getContext:()=>context,openAI:{oai_settings:oai,promptManager:manager,setOpenAIMessages:chat=>chat},crypto:webcrypto,document:{querySelector:()=>null},toastr:{error:message=>errors.push(message)}});
  handlers.get('start')();
  const leaves=[manager.preparePrompt({identifier:'main',role:'system',content:'EXACT_PRESET'}),manager.preparePrompt({identifier:'worldInfoBefore',role:'system',content:'WORLD_INFO'}),{identifier:'chatHistory-0',role:'user',content:'CURRENT'}];
  manager.messages={collection:leaves};

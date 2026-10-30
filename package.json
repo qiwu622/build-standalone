@@ -1,6 +1,6 @@
 {
   "name": "build-standalone",
-  "version": "0.4.7",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Single-process Google AI Studio Build text gateway",
@@ -15,6 +15,7 @@
     "login": "node scripts/login.mjs",
     "demo": "node src/main.mjs --demo",
     "test": "node --test tests/*.test.mjs",
+    "build:extension": "node scripts/build-extension.mjs",
     "init": "node src/main.mjs --init",
     "install:browser": "node scripts/install-browser.mjs"
   },

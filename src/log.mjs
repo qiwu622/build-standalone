@@ -1,6 +1,6 @@
 import {appendFile,readFile,stat,rename} from 'node:fs/promises';
 import {join} from 'node:path';
-const allowed=['event','requestId','model','accountId','status','durationMs','stage','contextMode','thinkingLevel','googleThinkingLevel','upstreamModel','code'];
+const allowed=['event','requestId','model','accountId','status','durationMs','stage','contextMode','thinkingLevel','googleThinkingLevel','upstreamModel','code','cleanupCode','queueMs','message','submitted','method','authUser','planTier','errorCategory'];
 export class CallLog {
   constructor(config){this.file=join(config.dataDir,'logs','calls.jsonl');this.chain=Promise.resolve();}
   record(input){

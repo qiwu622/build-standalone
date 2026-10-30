@@ -66,7 +66,7 @@ export class BuildAccountPool {
     async run(model,request,attempt) {
         if(!this.roster.length)throw fail('Build 账号池为空，请在管理页导入 Google 账号',503);
         const tried=new Set(), failures=[];
-        const deadline=this.now()+540000;
+        const deadline=request.deadline??Infinity;
         while(tried.size<this.roster.length) {
             if(request.aborted)throw fail(request.abortReason||'客户端已断开',request.abortStatus||499);
             if(this.now()>deadline)throw fail('Build 账号轮换超时，请稍后重试',504);

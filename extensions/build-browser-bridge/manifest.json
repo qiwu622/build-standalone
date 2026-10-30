@@ -1,13 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Build 本机连接器",
-  "version": "0.4.3",
-  "description": "正常登录 Google 后，自动创建或复用专用 Build 项目并连接本机 Build Standalone。",
+  "name": "Build 连接器 · 酒馆分流",
+  "version": "0.5.0",
+  "description": "自动连接专用 Build 项目，内置酒馆预设分流：预设进输入框，历史和世界书进项目文件。",
   "minimum_chrome_version": "118",
   "permissions": [
     "debugger",
     "activeTab",
-    "storage"
+    "storage",
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -15,7 +17,14 @@
     "https://aistudio.google.com/*",
     "https://ai.studio/*"
   ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "js": ["sillytavern-main.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "http://127.0.0.1/*",

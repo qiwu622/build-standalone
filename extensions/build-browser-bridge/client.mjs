@@ -43,20 +43,32 @@ export class BridgeClient {
   }
   async post(base,path,body,token){
     const res=await this.fetcher(base+path,{method:'POST',credentials:'omit',redirect:'error',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
-    const value=await res.json();if(!res.ok)throw new Error(value.error?.message||'本机连接失败');return value;
+    const value=await res.json();if(!res.ok)throw Object.assign(new Error(value.error?.message||'本机连接失败'),{code:value.error?.code,status:res.status});return value;
   }
   status(){return {connections:[...this.links.values()].map(s=>({tabId:s.tabId,email:s.email,base:s.base})),error:this.lastError};}
-  async connect({base,code,tabId}){
-    base=localBase(base);if(!/^[a-f0-9]{48}$/.test(code))throw new Error('请输入管理页生成的配对码，不是管理员密钥');
+  async connect({base,code,resumeKey,tabId,expectedEmail}){
+    base=localBase(base);if(resumeKey?!/^[a-f0-9]{64}$/.test(resumeKey):!/^[a-f0-9]{48}$/.test(code))throw new Error('请输入管理页生成的配对码，不是管理员密钥');
     if(this.links.has(tabId)||this.connecting.has(tabId))throw new Error('此标签页已连接或正在连接');
     const tab=await this.chrome.tabs.get(tabId),target=project(tab.url);this.connecting.add(tabId);let attached=false,session;
     try{
       await this.chrome.debugger.attach({tabId},'1.3');attached=true;
+      if(resumeKey){
+        const until=Date.now()+45000;
+        while(true){
+          if(project((await this.chrome.tabs.get(tabId)).url).url!==target.url)throw new Error('专用项目标签页已改变');
+          const r=await this.chrome.debugger.sendCommand({tabId},'Runtime.evaluate',{expression:identityExpression,returnByValue:true});
+          if(r.result?.value?.ready)break;
+          if(Date.now()>=until)throw new Error('项目加载超时；请检查 Google 页面，稍后自动重连');
+          await new Promise(r=>setTimeout(r,500));
+        }
+      }
       const result=await this.readIdentity(tabId,{force:true});
       const identity=result.result?.value;
       if(!identity?.ready||!identity.email||project(identity.url).url!==target.url)throw new Error('请先正常登录 Google，打开专用 Build 项目并等待聊天输入框出现');
-      const reply=await this.post(base,'/bridge/connect',{code,identity:{...identity,authUser:target.authUser}});
+      if(expectedEmail&&identity.email.toLowerCase()!==expectedEmail.toLowerCase())throw new Error('Google 当前账号与自动接入账号不一致，请重新登录');
+      const reply=await this.post(base,'/bridge/connect',{code,resumeKey,identity:{...identity,authUser:target.authUser}});
       session={tabId,base,token:reply.token,email:identity.email,target:target.url,events:[],tracked:new Set(),closed:false};
+      await this.onConnected?.({base,email:identity.email,target:target.url,resumeKey:reply.resumeKey});
       this.links.set(tabId,session);this.lastError='';void this.loop(session);return {message:reply.message};
     }catch(e){if(attached)await this.chrome.debugger.detach({tabId}).catch(()=>{});throw e;}
     finally{this.connecting.delete(tabId);}
@@ -81,10 +93,19 @@ export class BridgeClient {
     return {id:command.id,value};
   }
   async loop(s){
-    let results=[];
+    let results=[],sequence=1;
     try{while(!s.closed){
-      const batch=await this.post(s.base,'/bridge/exchange',{results,events:s.events.splice(0)},s.token);results=[];
-      for(const command of batch.commands||[]){if(s.closed)break;try{results.push(await this.command(s,command));}catch{throw new Error('专用标签页状态或浏览器命令异常；已断开，请检查页面后重新连接');}}
+      const payload={sequence,results,events:s.events.splice(0)};let batch;
+      for(let attempt=0;;attempt++){
+        try{batch=await this.post(s.base,'/bridge/exchange',payload,s.token);break;}
+        catch(e){if(s.closed||e.status||attempt>=2)throw e;await new Promise(r=>setTimeout(r,500*(attempt+1)));}
+      }
+      sequence++;results=[];
+      for(const command of batch.commands||[]){
+        if(s.closed)break;
+        try{results.push(await this.command(s,command));}
+        catch(e){results.push({id:command.id,error:'专用标签页状态或浏览器命令异常，请检查页面',code:'browser_command_failed'});this.lastError=e.message;}
+      }
     }}catch(e){if(!s.closed){this.lastError=e.message;await this.disconnect(s.tabId);}}
   }
 }

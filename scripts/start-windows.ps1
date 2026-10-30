@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([switch]$NoOpen)
+param([switch]$NoOpen, [ValidateSet('Default','Edge','Chrome')][string]$Browser = 'Default')
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -34,5 +34,13 @@ try {
   Write-Host ('API 地址：' + $Status.url + '/v1')
   Write-Host ('管理密钥取 adminKey；API 密钥取 apiKey。文件：' + (Join-Path ($DataPath | Select-Object -Last 1) 'credentials.json'))
   Write-Host ('浏览器连接器目录：' + (Join-Path $ProjectRoot 'extensions\build-browser-bridge'))
-  if (-not $NoOpen) { Start-Process $Status.url }
+  Write-Host '正在恢复已配对的 Build 项目。首次使用或更新旧连接器后，请在管理页接入一次。'
+  if (-not $NoOpen) {
+    $LaunchUrl = $Status.url + '/?reconnect=1'
+    if ($Browser -eq 'Default') { Start-Process $LaunchUrl }
+    else {
+      $BrowserName = if ($Browser -eq 'Edge') { 'msedge.exe' } else { 'chrome.exe' }
+      Start-Process $BrowserName -ArgumentList $LaunchUrl
+    }
+  }
 } finally { Set-Location -LiteralPath $PreviousLocation; $env:PATH = $PreviousPath }

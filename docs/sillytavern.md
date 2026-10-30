@@ -1,32 +1,19 @@
 # SillyTavern 预设与背景分流
 
-适配器 0.3.0 直接读取酒馆当前启用的预设，支持自定义 OpenAI，以及 OpenAI＋反向代理连接。已针对 SillyTavern 1.13.2 检查；服务端请使用 Build Standalone 0.4.4 或更新版本，不会自动升级其他聚合网关。
+0.5.0 已将分流并入浏览器连接器。只需安装 `extensions/build-browser-bridge` 一个扩展，在同一浏览器打开 Build 和酒馆。当前适配 SillyTavern 1.13.2。
 
-## 安装和选择
+## 启用和迁移
 
-推荐在酒馆顶部打开“扩展”→“安装扩展”，粘贴仓库链接：
+1. 加载或重新加载浏览器连接器，然后刷新酒馆。
+2. `http://localhost` / `http://127.0.0.1` 下的酒馆自动启用，不限制端口。局域网或其他域名：在酒馆页面打开连接器弹窗，点“在当前酒馆站点启用”，仅授权该站点。
+3. 酒馆扩展设置中显示“Build 独立版 · 酒馆分流”，版本 0.5.0（浏览器连接器内置）。勾选“直接读取当前启用预设”。
+4. 已安装旧 Build 酒馆扩展的用户：在酒馆“管理扩展”中禁用旧版，再刷新。连接器检测到旧版仍在运行时会让旧版单独处理，防止重复包装。
 
-```text
-https://github.com/qiwu622/build-standalone
-```
-
-分支留空，安装范围选当前用户，安装完成后刷新酒馆。仓库根目录的 `manifest.json` 只加载酒馆适配脚本，不会启动网关服务或安装浏览器连接器。酒馆运行的电脑需要已安装 Git。
-
-已经手动安装过 `build-standalone-adapter` 的用户，先在酒馆的“管理扩展”里禁用旧版并刷新，再通过链接安装；不要同时启用两份 Build 酒馆扩展。
-
-以下保留手动安装方式：
-
-在独立版解压目录运行（用户目录以实际安装为准）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install-sillytavern.ps1 -UserDirectory 'D:\SillyTavern\SillyTavern\data\default-user'
-```
-
-也可将 `extensions/build-standalone-adapter` 整个目录复制到酒馆的实际 `data/<用户>/extensions/` 下。安装脚本只复制扩展，已有版本会备份到该用户的 `backups/`；不修改酒馆核心、连接、预设、历史或密钥。刷新酒馆，在扩展设置里可看到“Build 独立版 · 酒馆分流”。
+不需要在酒馆内再次安装 GitHub 扩展，也不用安装油猴。仓库根 manifest 和旧安装脚本保留作为兼容入口，不是新版安装的必需步骤。
 
 连接可选“自定义 OpenAI”，填写独立网关的 `/v1` 地址和 API 密钥；也可继续使用“OpenAI”，将同一地址填入反向代理地址，API 密钥填入该反向代理的密码字段。选择 `build-st/gemini-4-argon-low`、`-medium`、`-high`，或对应 Flash 模型。没有后缀时固定 high。普通 `gemini-*` 或 `build/*` 模型沿用普通接口行为。
 
-允许“合并系统消息（Squash system messages）”；自定义连接需清空自定义请求正文和排除正文参数。只支持纯文本单候选，不支持图片、工具调用或 JSON schema。安装/更新后刷新酒馆，确认扩展面板显示版本 0.3.0；无需重装浏览器连接器或重新登录 Google。
+允许“合并系统消息（Squash system messages）”；自定义连接需清空自定义请求正文和排除正文参数。只支持纯文本单候选，不支持图片、工具调用或 JSON schema。安装/更新后刷新酒馆，确认面板显示版本 0.5.0（浏览器连接器内置）；无需重新登录 Google。
 
 ## 每次请求怎么处理
 

@@ -2,10 +2,10 @@ import {WIRE_PREFIX,MAX_SEGMENTS} from '../extensions/build-standalone-adapter/t
 import {error} from './errors.mjs';
 const fail=message=>{throw error(message,400,'sillytavern_context_invalid');};
 export function parseSillyTavern(messages){
- if(!Array.isArray(messages)||messages.length!==1||messages[0]?.role!=='user'||typeof messages[0]?.content!=='string'||!messages[0].content.startsWith(WIRE_PREFIX))fail('酒馆专用模型需要安装并启用 Build 适配扩展');
+ if(!Array.isArray(messages)||messages.length!==1||messages[0]?.role!=='user'||typeof messages[0]?.content!=='string'||!messages[0].content.startsWith(WIRE_PREFIX))fail('酒馆专用模型需要在安装了 Build 连接器的浏览器使用；请刷新酒馆，其他酒馆地址需在连接器中启用本站点');
  let value;try{value=JSON.parse(messages[0].content.slice(WIRE_PREFIX.length));}catch{fail('酒馆上下文封装损坏');}
  if(!value||value.version!==1)fail('不支持的酒馆适配版本');
- if(value.error)fail('酒馆适配器已阻止请求，请查看酒馆扩展提示；未调用 Google');
+ if(value.error)fail('酒馆适配器已阻止请求，请查看酒馆中的 Build 分流提示；未调用 Google');
  if(!['normal','regenerate','swipe','continue','quiet','impersonate'].includes(value.generationType))fail('不支持的酒馆生成类型');
  if(!Array.isArray(value.segments)||!value.segments.length||value.segments.length>MAX_SEGMENTS)fail('酒馆分段数量无效');
  let lastMessage=-1,lastPart=-1,lastRole,lastName,inlineBytes=0;

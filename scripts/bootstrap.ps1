@@ -153,7 +153,10 @@ try {
       $Config.publicOrigin = 'http://127.0.0.1:' + $Config.port
       [IO.File]::WriteAllText($ConfigPath,($Config | ConvertTo-Json -Depth 10),$Utf8)
     }
-    & (Join-Path $InstallRoot 'scripts\install.ps1') -SkipTests:(!$RunTests)
+    $InstallScript = Join-Path $InstallRoot 'scripts\install.ps1'
+    $InstallOptions = @{ SkipTests = (!$RunTests) }
+    if ((Get-Command $InstallScript).Parameters.ContainsKey('NoStart')) { $InstallOptions.NoStart = $true }
+    & $InstallScript @InstallOptions
   }
   [IO.File]::WriteAllText($MarkerPath,(@{repository=$Repository;installRoot=$InstallRoot;commit=$Commit;complete=$true} | ConvertTo-Json),$Utf8)
   if (-not $NoShortcut) {

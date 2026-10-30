@@ -11,7 +11,7 @@ if (-not $Target.StartsWith($UserRoot + [IO.Path]::DirectorySeparatorChar,[Strin
 foreach ($Path in @($UserRoot,$ExtensionsRoot,$Target)) {
   if ((Test-Path -LiteralPath $Path) -and (((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) { throw '扩展安装路径不能是链接' }
 }
-foreach ($Name in @('manifest.json','index.js','transport.js')) {
+foreach ($Name in @('manifest.json','index.js','transport.js','runtime.js')) {
   if (-not (Test-Path -LiteralPath (Join-Path $Source $Name) -PathType Leaf)) { throw ('安装源缺少 ' + $Name) }
 }
 if (Test-Path -LiteralPath $Target) {
@@ -22,7 +22,7 @@ if (Test-Path -LiteralPath $Target) {
   Write-Host ('旧扩展备份：' + $Backup)
 }
 New-Item -ItemType Directory -Path $Target -Force | Out-Null
-foreach ($Name in @('manifest.json','index.js','transport.js')) {
+foreach ($Name in @('manifest.json','index.js','transport.js','runtime.js')) {
   Copy-Item -LiteralPath (Join-Path $Source $Name) -Destination (Join-Path $Target $Name) -Force
   if ((Get-FileHash -LiteralPath (Join-Path $Source $Name)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $Target $Name)).Hash) { throw '扩展复制校验失败' }
 }

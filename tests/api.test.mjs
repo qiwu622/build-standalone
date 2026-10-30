@@ -3,6 +3,38 @@ import assert from 'node:assert/strict';
 import {fixture,body} from './helpers.mjs';
 import {parseCompletion} from '../src/protocol.mjs';
 import {encodeEnvelope} from '../extensions/build-standalone-adapter/transport.js';
+import {error} from '../src/errors.mjs';
+
+test('zero timeouts allow waiting and executing until the caller cancels',async t=>{
+  let entered=0,release;
+  const f=await fixture(t,{requestTimeoutMs:0,queueTimeoutMs:0,executor:{execute(_input,{signal,deadline}){
+    assert.equal(deadline,Infinity);entered++;
+    return new Promise((resolve,reject)=>{release=()=>resolve({text:'COMPLETE'});signal.addEventListener('abort',()=>reject(signal.reason),{once:true});});
+  }}});
+  const first=f.call('/v1/chat/completions',body);while(!entered)await new Promise(r=>setTimeout(r,2));
+  const controller=new AbortController();const queued=fetch(f.url+'/v1/chat/completions',{method:'POST',headers:{authorization:'Bearer '+f.credentials.apiKey,'content-type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
+  const rejected=assert.rejects(queued,e=>e.name==='AbortError');
+  await new Promise(r=>setTimeout(r,80));assert.equal(entered,1);assert.equal(f.service.scheduler.queue.length,1);
+  controller.abort();await rejected;release();assert.equal((await first).status,200);
+});
+
+test('queue waiting does not subtract time from the next execution budget',async t=>{
+  let started=0;
+  const f=await fixture(t,{requestTimeoutMs:100,queueTimeoutMs:300,executor:{async execute(_input,{deadline}){started++;assert.ok(deadline>Date.now());await new Promise(r=>setTimeout(r,70));return {text:'DONE'};}}});
+  const first=f.call('/v1/chat/completions',body);
+  while(!started)await new Promise(r=>setTimeout(r,2));
+  const second=f.call('/v1/chat/completions',body);
+  for(const p of [first,second])assert.equal((await p).status,200);
+});
+
+test('delayed SSE sends keepalive comments and an explicit error frame on failure',async t=>{
+  const f=await fixture(t,{streamHeartbeatMs:10,executor:{async execute(){await new Promise(r=>setTimeout(r,50));throw error('Google 生成超时',504,'google_response_timeout');}}});
+  const response=await f.call('/v1/chat/completions',{...body,stream:true});const reader=response.body.getReader();
+  const first=new TextDecoder().decode((await reader.read()).value);assert.match(first,/: keepalive/);
+  let rest='';for(;;){const r=await reader.read();if(r.done)break;rest+=new TextDecoder().decode(r.value);}
+  assert.match(rest,/google_response_timeout/);assert.ok(!rest.includes('"finish_reason":"stop"'));
+  assert.equal((await f.log.recent()).find(x=>x.event==='completion').status,504);
+});
 
 test('HTTP API authenticates and runs direct executor end to end',async t=>{
   const seen=[];const f=await fixture(t,{executor:{async execute(input,ctx){seen.push({input,ctx});return {text:'DIRECT_OK'};}}});

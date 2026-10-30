@@ -17,10 +17,11 @@ export async function atomicJSON(file,value) {
 }
 export async function loadConfig({file=process.env.BUILD_CONFIG||join(projectRoot,'config.json'),overrides={}}={}) {
   const raw=await readJSON(file,{});
-  const config={host:'127.0.0.1',port:8787,publicOrigin:'',dataDir:'./data',browserPath:'',headless:true,requestTimeoutMs:420000,maxQueue:8,maxBodyBytes:8*1024*1024,...raw,...overrides};
+  const config={host:'127.0.0.1',port:8787,publicOrigin:'',dataDir:'./data',browserPath:'',headless:true,requestTimeoutMs:0,queueTimeoutMs:0,streamHeartbeatMs:15000,maxQueue:8,maxBodyBytes:8*1024*1024,...raw,...overrides};
   config.dataDir=resolve(projectRoot,config.dataDir);
   if(!Number.isInteger(config.port)||config.port<0||config.port>65535)throw error('port 必须为 0–65535');
-  if(!Number.isInteger(config.requestTimeoutMs)||config.requestTimeoutMs<50||config.requestTimeoutMs>900000)throw error('requestTimeoutMs 无效');
+  for(const key of ['requestTimeoutMs','queueTimeoutMs'])if(!Number.isInteger(config[key])||config[key]<0||config[key]>2147483647)throw error(key+' 必须为非负毫秒数；0 表示不限制');
+  if(!Number.isInteger(config.streamHeartbeatMs)||config.streamHeartbeatMs<10||config.streamHeartbeatMs>60000)throw error('streamHeartbeatMs 无效');
   if(!Number.isInteger(config.maxBodyBytes)||config.maxBodyBytes<1024||config.maxBodyBytes>16*1024*1024)throw error('maxBodyBytes 无效');
   if(!Number.isInteger(config.maxQueue)||config.maxQueue<0||config.maxQueue>100)throw error('maxQueue 无效');
   if(typeof config.headless!=='boolean')throw error('headless 必须为布尔值');
@@ -48,6 +49,21 @@ export async function acquireLock(dataDir) {
   try {handle=await open(file,'wx',0o600);await handle.writeFile(JSON.stringify({pid:process.pid,instanceId}));}
   catch(e){if(e.code==='EEXIST')throw error('数据目录已有服务锁；确认旧进程已退出后才能手动移除 service.lock',409);throw e;}
   const release=async()=>{await handle.close();await rm(file,{force:true});};release.instanceId=instanceId;return release;
+}
+export async function recoverDeadServiceLock(dataDir,{alive=pid=>{try{process.kill(pid,0);return true;}catch(e){if(e.code==='ESRCH')return false;throw e;}}}={}){
+  const file=join(dataDir,'service.lock'),lock=await readJSON(file,null);
+  if(!lock)return false;
+  if(!Number.isSafeInteger(lock.pid)||lock.pid<1||typeof lock.instanceId!=='string')throw error('服务锁格式无效，请检查 service.lock');
+  if(alive(lock.pid))return false;
+  // Serialize recovery attempts, then recheck before removing only a dead lock.
+  const guard=await open(join(dataDir,'service-recovery.lock'),'wx',0o600);
+  try{
+    const current=await readJSON(file,null);
+    if(current?.instanceId===lock.instanceId&&current.pid===lock.pid&&!alive(current.pid)){
+      await rename(file,join(dataDir,'service-stale-'+randomUUID()+'.json'));return true;
+    }
+    return false;
+  }finally{await guard.close();await rm(join(dataDir,'service-recovery.lock'),{force:true});}
 }
 export async function profilePath(config,id) {
   if(!/^acct_[a-f0-9]{32}$/.test(id))throw error('无效账号 ID');

@@ -162,6 +162,17 @@ test('review: stop control requires admin credentials and the exact running inst
  const accepted=await stop(state.instanceId);assert.equal(accepted.status,200);await accepted.text();await until(()=>stops===1);
 });
 
+test('updater idle-stop refuses active work and prevents new requests after acceptance',async t=>{
+ let release,stops=0;const held=new Promise(r=>{release=r;});
+ const f=await fixture(t,{execute:async()=>{await held;return {text:'OK'};},onShutdown:async()=>{stops++;}});
+ const state=await(await fetch(f.url+'/admin/state',{headers:adminHeaders})).json();
+ const stop=()=>fetch(f.url+'/admin/control/stop',{method:'POST',headers:adminHeaders,body:JSON.stringify({instanceId:state.instanceId,onlyIfIdle:true})});
+ const pending=f.post();await until(()=>f.calls.length===1);
+ const refused=await stop();assert.equal(refused.status,409);assert.equal(stops,0);await refused.text();
+ release();assert.equal((await pending).status,200);const accepted=await stop();assert.equal(accepted.status,200);await accepted.text();
+ const blocked=await f.post();assert.equal(blocked.status,503);await blocked.text();await until(()=>stops===1);
+});
+
 test('review: pool persistence and admin snapshot do not retain raw upstream error payloads',async()=>{
  const state={},saved=[];
  const pool=new BuildAccountPool({state,save:async()=>saved.push(JSON.stringify(state))});

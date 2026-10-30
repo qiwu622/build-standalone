@@ -41,7 +41,7 @@ async function refresh(){
   for(const account of state.accounts){
     const connected=state.connections?.some(c=>c.accountId===account.id&&c.connected);
     const row=element('div',undefined,'account'),head=element('div',undefined,'account-head'),title=element('div');
-    title.append(element('strong',account.email),element('small',(account.enabled?'已启用':'已停用')+' · '+(connected?'扩展在线':'扩展离线，请点击自动接入')));head.append(title);
+    title.append(element('strong',account.email),element('small',(account.enabled?'已启用':'已停用')+' · '+(connected?'扩展在线':'等待自动恢复；首次升级请接入一次')));head.append(title);
     const controls=element('div',undefined,'row');
     controls.append(action(account.enabled?'停用':'启用',async()=>{await api('/admin/accounts/enabled',{id:account.id,enabled:!account.enabled});message('账号状态已更新');}));
     if(connected)controls.append(action('断开扩展',async()=>{await api('/admin/bridge/disconnect',{id:account.id});message('已断开扩展；Google 登录状态保留在浏览器。');}));
@@ -51,7 +51,7 @@ async function refresh(){
     for(const [model,value] of Object.entries(pool?.models||{}))modelStatus.append(element('span',`${model} · ${account.enabled?(statuses[value.status]||value.status):'已停用'} · 成功 ${value.successes}${value.retryAt?' · 可重试 '+new Date(value.retryAt).toLocaleTimeString():''}`));
     row.append(modelStatus);$('accounts').append(row);
   }
-  $('logs').replaceChildren();for(const item of logs.records){const tr=element('tr');for(const cell of [new Date(item.at).toLocaleString(),item.model||'—',item.stage||item.event,item.status||'—',item.durationMs!==undefined?(item.durationMs/1000).toFixed(2)+' s':'—'])tr.append(element('td',String(cell)));$('logs').append(tr);}
+  $('logs').replaceChildren();for(const item of logs.records){const tr=element('tr');for(const cell of [new Date(item.at).toLocaleString(),item.model||'—',item.stage||item.event,item.status||'—',item.durationMs!==undefined?(item.durationMs/1000).toFixed(2)+' s':'—',[item.code,item.message,item.requestId].filter(Boolean).join(' · ')])tr.append(element('td',String(cell)));$('logs').append(tr);}
 }
 $('login-form').addEventListener('submit',async event=>{event.preventDefault();token=$('key').value.trim();try{await refresh();$('key').value='';message('已连接。管理密钥仅保存在此页面内存中。');clearInterval(poll);poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),5000);}catch(e){token='';message(e.message,true);}});
 $('refresh').onclick=()=>perform($('refresh'),async()=>{});

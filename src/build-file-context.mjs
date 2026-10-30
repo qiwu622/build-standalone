@@ -112,10 +112,13 @@ export class BuildFileContext {
   }
  }
  async wait(send,sid,predicate,message,{cancel=true,timeout=this.timeoutMs}={}){
-  const until=Date.now()+timeout;
+  const started=Date.now(),until=this.worker.current?.deadline===Infinity&&!this.worker.current?.aborted?Infinity:started+timeout;
   do{
    if(cancel)this.worker.aborted(this.worker.current);
    if(await predicate())return;
+   // A cancellation arriving during cleanup must still release the executor;
+   // cleanup has a bounded grace period after the caller has already cancelled.
+   if(!cancel&&this.worker.current?.aborted&&Date.now()-started>=timeout)break;
    await sleep(150);
   }while(Date.now()<until);
   throw fail(message);

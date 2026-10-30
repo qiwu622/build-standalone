@@ -45,3 +45,9 @@ Chrome 打开 `chrome://extensions`，Edge 打开 `edge://extensions`，开启�
 自动化测试覆盖真实本机 HTTP 传输配合模拟 Chrome API、配对鉴权/过期/重放、跨标签页隔离、Google 请求元数据过滤、超时撤销、文件原文传输和账号索引。它们不等于真实 Google 生成成功。
 
 浏览器实现依据：[Chrome debugger API](https://developer.chrome.com/docs/extensions/reference/api/debugger)、[扩展 Service Worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。最低 Chrome 118，活动 debugger 会话用于维持扩展处理长请求；意外断连仍按失败处理。
+
+## 0.5.0 内置酒馆分流与恢复
+
+同一扩展已包含酒馆适配。本机 localhost / 127.0.0.1 自动生效，其他地址在扩展弹窗显式授权当前站点。新增 scripting 权限仅用于注入随扩展发布的分流代码；可选站点权限按当前主机授权，不默认访问所有网站。分流代码运行在酒馆页面主环境，不接触连接器保存的恢复密钥。兼容和迁移见 [酒馆适配](sillytavern.md)。
+
+已配对的 0.5.0 专用项目会在浏览器启动、管理页打开或后台检查时恢复连接；旧版首次升级需重新接入一次。Google 登录失效仍需正常登录。

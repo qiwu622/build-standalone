@@ -42,7 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\build-setup.ps1"
 - API Key：凭据文件的 `apiKey`。
 - 模型：从客户端读取模型列表，例如 `gemini-4-argon-high`。
 
-酒馆预设分流另见 [酒馆适配教程](sillytavern.md)。本版本的 SSE 是完整答案完成后返回，尚不是真正逐 token 流式。
+同一个浏览器扩展已内置酒馆预设分流，无需另装第二个扩展。旧酒馆扩展先禁用并刷新，详见 [酒馆适配教程](sillytavern.md)。本版本的 SSE 是完整答案完成后返回，尚不是真正逐 token 流式。
 
 ## 更新和自定义目录
 

@@ -1,5 +1,7 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Build 本机连接器</title><link rel="stylesheet" href="popup.css"><script type="module" src="popup.js"></script></head><body>
 <h1>连接当前 Build 项目</h1><p>先在常用浏览器正常登录 Google，并打开一个仅供本服务使用的 Build 项目。连接后不要手动编辑该标签页。</p>
 <form id="connect"><label>本机服务地址<input id="base" type="url" value="http://127.0.0.1:8787" required></label><label>管理页的一次性配对码<input id="code" type="password" autocomplete="off" required></label><button id="submit">连接当前标签页</button></form>
-<p id="status" role="status"></p><div id="connections"></div><p class="hint">浏览器会显示“正在调试”提示，用于读取回复、填写输入框和上传上下文文件。不会代填 Google 密码、导出 Cookie 或开启调试端口。关闭浏览器后需重新配对。</p>
+<p id="status" role="status"></p><div id="connections"></div><p class="hint">浏览器会显示“正在调试”提示，用于读取回复、填写输入框和上传上下文文件。不会代填 Google 密码、导出 Cookie 或开启调试端口。已配对的专用项目会自动恢复连接。</p>
+<h2>酒馆预设分流</h2><p>本机 localhost / 127.0.0.1 酒馆自动生效，不必另装酒馆扩展。在同一浏览器使用 <code>build-st/</code> 模型。</p>
+<button id="enable-st" type="button">在当前酒馆站点启用</button><p id="st-status" role="status">局域网或其他酒馆地址：在酒馆页面打开本弹窗，点击上方按钮，仅授权该站点。旧酒馆扩展请禁用后刷新。</p>
 </body></html>

@@ -17,7 +17,7 @@ try {
   # Back up source/config only. A consistent private data backup is a separate command.
   $BackupRoot = Join-Path $TargetRoot ('work\upgrade-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
   New-Item -ItemType Directory -Path $BackupRoot | Out-Null
-  $Allowed = @('src','public','scripts','tests','extensions','docs','licenses','package.json','package-lock.json','manifest.json','config.example.json','README.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','.gitignore')
+  $Allowed = @('src','public','scripts','tests','extensions','docs','licenses','install.cmd','start.cmd','update.cmd','package.json','package-lock.json','manifest.json','config.example.json','README.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','.gitignore')
   foreach ($Name in $Allowed) {
     $Current = Join-Path $TargetRoot $Name
     if (Test-Path -LiteralPath $Current) { Copy-Item -LiteralPath $Current -Destination $BackupRoot -Recurse }
@@ -31,7 +31,10 @@ try {
     if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
     Copy-Item -LiteralPath $New -Destination $Destination -Recurse
   }
-  & (Join-Path $TargetRoot 'scripts\install.ps1') -SkipBrowserDownload:$SkipBrowserDownload -SkipTests:$SkipTests
+  $InstallScript = Join-Path $TargetRoot 'scripts\install.ps1'
+  $InstallOptions = @{ SkipBrowserDownload = $SkipBrowserDownload; SkipTests = $SkipTests }
+  if ((Get-Command $InstallScript).Parameters.ContainsKey('NoStart')) { $InstallOptions.NoStart = $true }
+  & $InstallScript @InstallOptions
   if (-not $?) { throw '新版本安装失败；旧源码备份保留在 work/upgrade-*，数据未删除' }
   Write-Host ('升级完成；config.json 与数据已保留。旧源码备份：' + $BackupRoot)
   Write-Host '运行 npm run start:background 启动新版本。'

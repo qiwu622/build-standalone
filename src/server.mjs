@@ -30,7 +30,7 @@ export function createService({config,credentials,executor,store,pool,browsers,l
     adminBusy=true;try{return await fn();}finally{adminBusy=false;}
   };
   const server=http.createServer(async(req,res)=>{
-    const requestId=randomUUID(),started=Date.now();let timer,controller,parsed,result,failureCode;
+    const requestId=randomUUID(),started=Date.now();let timer,heartbeat,controller,parsed,result,failureCode,failureStatus,failureMessage,failureStage,queueMs;
     res.setHeader('x-request-id',requestId);res.setHeader('cache-control','no-store');res.setHeader('x-content-type-options','nosniff');
     res.setHeader('referrer-policy','no-referrer');res.setHeader('x-frame-options','DENY');
     try {
@@ -52,9 +52,10 @@ export function createService({config,credentials,executor,store,pool,browsers,l
         if(demo||!browsers?.exchange)throw error('此实例不支持扩展连接',409,'bridge_unavailable');
         if(req.method!=='POST')throw error('扩展接口需要 POST',405);
         if(path==='/bridge/authorize') {const body=await readBody(req,1024);return json(res,200,browsers.authorize(body.code));}
+        if(path==='/bridge/resume-check') {const body=await readBody(req,1024);return json(res,200,await browsers.resumeStatus(body.resumeKey,req.headers.origin||''));}
         if(path==='/bridge/connect') {
           const body=await readBody(req,4096);
-          return json(res,200,await adminOperation(()=>browsers.connect(body)));
+          return json(res,200,await adminOperation(()=>browsers.connect(body,req.headers.origin||'')));
         }
         const session=browsers.authenticate((req.headers.authorization||'').replace(/^Bearer /,''));
         if(path==='/bridge/disconnect'){browsers.disconnect(session);return json(res,200,{ok:true});}
@@ -78,14 +79,24 @@ export function createService({config,credentials,executor,store,pool,browsers,l
         controller=new AbortController();active.set(requestId,controller);
         const cancel=()=>{if(!res.writableEnded)controller.abort(error('客户端已断开',499,'cancelled'));};
         res.on('close',cancel);req.on('aborted',cancel);
-        timer=setTimeout(()=>controller.abort(error('请求超时（包含队列等待）',504,'request_timeout')),config.requestTimeoutMs);
-        const task=scheduler.run(()=>executor.execute(parsed,{signal:controller.signal,requestId}),controller.signal);
-        result=await waitResult(task,controller.signal);
-        const output=completion(parsed.responseModel||parsed.alias,result.text);
         res.setHeader('x-build-mode',demo?'demo':'live');res.setHeader('x-build-streaming','buffered');
         res.setHeader('x-build-upstream-model',parsed.resolved.model);res.setHeader('x-build-thinking-level',parsed.resolved.thinkingLevel);
         if(parsed.body.sillytavern)res.setHeader('x-build-context','sillytavern_split');
-        if(parsed.stream){res.writeHead(200,{'content-type':'text/event-stream; charset=utf-8'});res.end(bufferedSSE(output));}
+        if(parsed.stream)heartbeat=setInterval(()=>{
+          if(res.destroyed||res.writableEnded)return;
+          if(!res.headersSent)res.writeHead(200,{'content-type':'text/event-stream; charset=utf-8','x-accel-buffering':'no'});
+          res.write(': keepalive\n\n');
+        },config.streamHeartbeatMs||15000);
+        if(config.queueTimeoutMs>0)timer=setTimeout(()=>controller.abort(error('等待空闲 Build 执行位置超时，尚未提交 Google',504,'queue_timeout')),config.queueTimeoutMs);
+        const task=scheduler.run(()=>{
+          clearTimeout(timer);queueMs=Date.now()-started;
+          const deadline=config.requestTimeoutMs>0?Date.now()+config.requestTimeoutMs:Infinity;
+          if(config.requestTimeoutMs>0)timer=setTimeout(()=>controller.abort(error('Build 执行达到配置时限',504,'request_timeout')),config.requestTimeoutMs);
+          return executor.execute(parsed,{signal:controller.signal,requestId,deadline});
+        },controller.signal);
+        result=await waitResult(task,controller.signal);
+        const output=completion(parsed.responseModel||parsed.alias,result.text);
+        if(parsed.stream){if(!res.headersSent)res.writeHead(200,{'content-type':'text/event-stream; charset=utf-8'});res.end(bufferedSSE(output));}
         else json(res,200,output);
         return;
       }
@@ -100,7 +111,7 @@ export function createService({config,credentials,executor,store,pool,browsers,l
         return json(res,200,await adminOperation(()=>browsers.pairing()));
       }
       if(req.method==='POST'&&path==='/admin/bridge/disconnect') {
-        const body=await readBody(req,1024);browsers?.disconnectAccount?.(body.id);return json(res,200,{ok:true});
+        const body=await readBody(req,1024);await browsers?.disconnectAccount?.(body.id);return json(res,200,{ok:true});
       }
       if(req.method==='POST'&&path==='/admin/login/start') {
         if(browsers?.pairing)throw error('已改为常用浏览器扩展接入，请生成配对码后连接专用 Build 标签页',410,'extension_required');
@@ -121,19 +132,25 @@ export function createService({config,credentials,executor,store,pool,browsers,l
       }
       if(req.method==='POST'&&path==='/admin/control/stop'){
         const body=await readBody(req,1024);if(body.instanceId!==instanceId)throw error('实例不匹配；拒绝停止其他服务',409,'instance_mismatch');
-        if(!onShutdown)throw error('此实例未配置进程管理',409);json(res,200,{ok:true});setTimeout(()=>void onShutdown(),50);return;
+        if(body.onlyIfIdle&&(scheduler.busy||scheduler.queue.length||adminBusy))throw error('仍有请求或管理操作进行中，未停止服务',409,'busy');
+        if(!onShutdown)throw error('此实例未配置进程管理',409);closing=true;json(res,200,{ok:true});setTimeout(()=>void onShutdown(),50);return;
       }
       throw error('路由不存在',404,'not_found');
     }catch(e) {
       failureCode=e.code||e.rotationReason||'build_error';
-      if(!res.destroyed&&!res.headersSent){const status=Number.isInteger(e.status)&&e.status>=400&&e.status<=599?e.status:500;
+      const status=Number.isInteger(e.status)&&e.status>=400&&e.status<=599?e.status:500;
+      failureStatus=status;failureStage=e.stage;
+      if(!res.destroyed){
         // Raw Playwright/Google errors can contain paths or request text; expose only controlled messages.
         const message=e instanceof AppError?String(e.message).slice(0,800):({400:'Build 请求参数无效',401:'Google 登录已失效',403:'Google 订阅或模型权限不可用',404:'模型或资源不存在',413:'Build 上下文过大',422:'Google 已明确拒绝本次内容',429:'Build 账号池限额，请在冷却后重试',499:'请求已取消',503:'Build 没有可用账号或浏览器，请检查管理页',504:'Build 请求超时'}[status]||'Build 上游或浏览器执行失败，请检查管理页状态');
-        json(res,status,{error:{message,type:status<500?'invalid_request_error':'server_error',code:e.code||e.rotationReason||'build_error'}},e.retryAfterSeconds?{'retry-after':String(e.retryAfterSeconds)}:{});
+        failureMessage=message;
+        const envelope={error:{message,type:status<500?'invalid_request_error':'server_error',code:failureCode,status,request_id:requestId,...(e.stage?{stage:e.stage}:{})}};
+        if(res.headersSent)res.end('data: '+JSON.stringify(envelope)+'\n\ndata: [DONE]\n\n');
+        else json(res,status,envelope,e.retryAfterSeconds?{'retry-after':String(e.retryAfterSeconds)}:{});
       }
     }finally {
-      clearTimeout(timer);active.delete(requestId);
-      if(parsed)await log.record({event:'completion',requestId,model:parsed.alias,status:res.destroyed&&!res.writableEnded?499:res.statusCode,durationMs:Date.now()-started,code:failureCode,...result}).catch(()=>{});
+      clearTimeout(timer);clearInterval(heartbeat);active.delete(requestId);
+      if(parsed)await log.record({event:'completion',requestId,model:parsed.alias,status:res.destroyed&&!res.writableEnded?499:failureStatus||res.statusCode,durationMs:Date.now()-started,queueMs,code:failureCode,message:failureMessage,stage:failureStage,...result}).catch(()=>{});
     }
   });
   server.requestTimeout=30000;server.headersTimeout=15000;server.keepAliveTimeout=5000;

@@ -5,7 +5,9 @@
   "dataDir": "./data",
   "browserPath": "",
   "headless": true,
-  "requestTimeoutMs": 420000,
+  "requestTimeoutMs": 0,
+  "queueTimeoutMs": 0,
+  "streamHeartbeatMs": 15000,
   "maxQueue": 8,
   "maxBodyBytes": 8388608
 }

@@ -5,7 +5,7 @@ import {AppError,isContentRefusal, safeFailure} from './errors.mjs';
 import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
 export {buildModels} from './build-thinking.mjs';
 
-const failure = (message, status = 502) => new AppError(message,status,'build_execution_failed');
+const failure = (message, status = 502,code='build_execution_failed') => new AppError(message,status,code);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const composerSelector = placeholder => `:is(textarea,[contenteditable="true"],[contenteditable="plaintext-only"])[placeholder=${JSON.stringify(placeholder)}]`;
 export function googleErrorSummary(raw) {
@@ -118,10 +118,11 @@ export class BuildChatWorker {
         await this.log('account_context',{reason:JSON.stringify({phase,path:page?.path,authUser:page?.authUser,expectedAuthUser:expected?.auth_user,identityMatches:page?.email&&expected?.email?page.email.toLowerCase()===expected.email.toLowerCase():null})},request);
     }
     async wait(send, sid, predicate, timeout = 12000) {
-        const until = Date.now() + timeout;
+        const until = this.current?.deadline===Infinity?Infinity:Date.now()+timeout;
         do {
             this.aborted(this.current);
             const state = await this.evaluate(send, sid, snapshotScript);
+            if(state?.error)throw failure('Google Build 页面返回错误',502,'google_page_error');
             if (predicate(state)) return state;
             await sleep(350);
         } while (Date.now() < until);
@@ -176,7 +177,7 @@ export class BuildChatWorker {
         return this.cdp(async send => {
             request.stage='browser_session';this.aborted(request);
             const sid = await this.session(send);
-            const faults=[],rpcIds=new Set();let thinkingMismatch=false,wireAccountMismatch=false;
+            const faults=[],rpcIds=new Set();let thinkingMismatch=false,wireAccountMismatch=false,primaryError,networkFailure;
             try {
             send.onEvent?.(event=>{
                 if(event.sessionId!==sid)return;
@@ -188,13 +189,17 @@ export class BuildChatWorker {
                     if(wireUser!==null&&wireUser!==undefined&&String(wireUser)!==(this.pool?.roster.find(a=>a.id===this.accountId)?.auth_user||'0'))wireAccountMismatch=true;
                     let model=null,appId=null;try{const data=JSON.parse(rpc.postData);if(typeof data[7]==='string'&&/^models\/gemini-[\w.-]+$/.test(data[7]))model=data[7];if(typeof data[11]==='string'&&/^[a-f0-9-]{36}$/i.test(data[11]))appId=data[11];}catch{/* preflight or non-JSPB request */}
                     if(rpc.method==='POST'){
+                        request.submitted=true;
                         request.googleThinkingLevel=readBuildThinking(rpc.postData);
                         thinkingMismatch ||= request.googleThinkingLevel!==resolved.thinkingLevel || model!=='models/'+resolved.model;
                         request.googleModel=model;
                     }
-                    void this.log('google_request_context',{reason:JSON.stringify({method:rpc.method,authUser:header('x-goog-authuser')??null,planTier:header('X-AIStudio-G1-Tier')??null,urlAuthUser:new URL(rpc.url).searchParams.get('authuser'),model,appId,requestedThinkingLevel:resolved.thinkingLevel,googleThinkingLevel:request.googleThinkingLevel})},request);
+                    void this.log('google_request_context',{upstreamModel:model,googleThinkingLevel:request.googleThinkingLevel,method:rpc.method,authUser:wireUser,planTier:header('X-AIStudio-G1-Tier'),submitted:request.submitted},request);
                 }
-                if(event.method==='Network.loadingFailed'&&rpcIds.has(event.params.requestId))void this.log('google_network_failed',{error:new Error(event.params.errorText||'Network loading failed')},request);
+                if(event.method==='Network.loadingFailed'&&rpcIds.has(event.params.requestId)){
+                    networkFailure=String(event.params.errorText||'').match(/net::ERR_[A-Z_]+/)?.[0]||'network_failed';
+                    void this.log('google_network_failed',{code:networkFailure},request);
+                }
                 if(event.method==='Network.responseReceived' && event.params.response.url.includes('/CodeAssistantOffline') && event.params.response.status>=400){
                     faults.push(event.params.response.status);
                     const retry=Object.entries(event.params.response.headers||{}).find(([k])=>k.toLowerCase()==='retry-after')?.[1];
@@ -247,19 +252,22 @@ export class BuildChatWorker {
             request.stage='send_prompt';await this.log('request_stage',{},request);const responseStarted=Date.now();await this.fillAndSend(send, sid, prompt, false, request);
             request.stage='wait_response';await this.log('request_stage',{},request);
             let observed = false, settledText, settledHeader, settledAt=0;
-            const until = Date.now() + (context?300000:150000);
+            const until = request.deadline??Infinity;
                 while (Date.now() < until) {
                     this.aborted(request);
                     if(wireAccountMismatch)throw safeFailure('account_mismatch');
                     if(thinkingMismatch)throw Object.assign(failure('Google 实际请求的思考档位与指定档位不符'),{rotationReason:'thinking_configuration_failed'});
                     if(faults.includes(429))throw Object.assign(failure('Google Build 额度或请求频率限制',429),{quotaExceeded:true,retryAfterSeconds:request.retryAfterSeconds});
                     if(faults.includes(401))throw Object.assign(failure('Google 登录已失效',401),{rotationReason:'login_required'});
+                    if(networkFailure)throw failure('Google 生成连接中断（'+networkFailure+'）；本次请求没有自动重发',502,'google_network_failed');
                     const next = await this.evaluate(send, sid, snapshotScript);
                     if (next.count > 0 || next.running) observed = true;
                     if (next.error) {
                         const status=/quota|rate.limit|resource.exhausted|限额|配额|额度.{0,12}(?:耗尽|用尽|上限)/i.test(next.error)||faults.includes(429)?429:faults.at(-1)||502;
                         if(isContentRefusal(next.error))throw safeFailure('content_refused');
-                        const error=failure('Google Build 返回调用错误',status);
+                        const timedOut=/timed?\s*out|timeout|deadline.?exceeded|超时/i.test(next.error);
+                        const error=timedOut?failure('Google Build 页面报告生成超时；本次请求没有自动重发',504,'google_response_timeout'):failure('Google Build 返回调用错误',status,'google_response_error');
+                        await this.log('google_ui_error',{status:error.status,code:error.code,errorCategory:timedOut?'timeout':status===429?'quota':status===403?'permission':'upstream'},request);
                         error.quotaExceeded=status===429;
                         error.retryAfterSeconds=request.retryAfterSeconds;
                         if(status===403&&/permission denied|does not have permission|权限不足|没有权限|权限遭拒|权限被拒|无权访问/i.test(next.error))error.rotationReason='model_permission_denied';
@@ -271,7 +279,7 @@ export class BuildChatWorker {
                         if(next.text!==settledText || next.header!==settledHeader || !settledAt) {
                             settledText=next.text;settledHeader=next.header;settledAt=Date.now();
                         } else if(Date.now()-settledAt>=this.responseSettleMs) {
-                            if (!next.text) throw failure('Build 未返回文本；请检查 Google 登录或额度',faults.at(-1)||502);
+                            if (!next.text) throw failure('Build 未返回文本；请检查 Google 登录或额度',faults.at(-1)||502,'google_empty_response');
                             if (!next.header.includes(resolved.displayName)) throw failure('Build 返回的模型与请求不符');
                             this.verifyThinking(request);
                             if(isContentRefusal(next.text))throw safeFailure('content_refused');
@@ -284,18 +292,18 @@ export class BuildChatWorker {
                     } else {settledAt=0;settledText=undefined;settledHeader=undefined;}
                     await sleep(this.pollInterval);
                 }
-                throw failure('Build 订阅聊天响应超时', 504);
-            } finally {
+                throw failure('Build 等待回复达到配置的执行时限',504,'build_response_timeout');
+            } catch(e){primaryError=e;throw e;} finally {
                 let stoppedCleanly=true;
                 try{await this.stopGeneration(send,sid);}catch(error){stoppedCleanly=false;await this.log('context_cancel_unsettled',{error},request);}
-                if(!stoppedCleanly)throw safeFailure('context_cleanup_failed');
+                if(!stoppedCleanly){if(primaryError)primaryError.cleanupCode='context_cleanup_failed';else throw safeFailure('context_cleanup_failed');}
                 if(context?.uploadStarted&&stoppedCleanly){
                     const cleanupStarted=Date.now();
                     try{
                         const removed=await this.contextTransport.clear(send,sid,{cancel:false,allowDirty:true});
                         request.contextCleanupMs=Date.now()-cleanupStarted;
                         await this.log('context_cleared',{durationMs:request.contextCleanupMs,reason:JSON.stringify({files:removed})},request);
-                    }catch(error){await this.log('context_cleanup_failed',{error,durationMs:Date.now()-cleanupStarted},request);throw safeFailure('context_cleanup_failed');}
+                    }catch(error){await this.log('context_cleanup_failed',{code:'context_cleanup_failed',durationMs:Date.now()-cleanupStarted},request);if(primaryError)primaryError.cleanupCode='context_cleanup_failed';else throw safeFailure('context_cleanup_failed');}
                 }
 
             }

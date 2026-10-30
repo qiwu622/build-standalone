@@ -1,6 +1,14 @@
-# Build Standalone 0.4.7
+# Build Standalone 0.5.0
 
 独立的 Google AI Studio **Build 代码助手**文本服务，提供 OpenAI 兼容接口、账号池、项目文件长历史、酒馆预设分流及模型思考档位。
+
+Windows 源码项目解压后，双击 `install.cmd` 即可安装、自动启动服务并打开管理页。以后双击 `start.cmd` 启动，双击 `update.cmd` 从 GitHub 更新。安装脚本自动准备 Node.js；首次在常用浏览器安装连接器并接入账号后，后续启动自动恢复已配对的专用项目。旧连接器升级到 0.5.0 后，需要重新加载并接入一次，才能保存自动恢复授权。
+
+现在只需一个浏览器扩展：`extensions/build-browser-bridge` 同时负责 Build 网页执行和酒馆预设分流。在同一浏览器打开酒馆，本机 localhost / 127.0.0.1 自动启用；其他地址在连接器弹窗点击“在当前酒馆站点启用”。旧酒馆适配扩展请禁用后刷新。高级安装可加 `-NoStart` 仅安装，或加 `-NoOpen` 启动但不打开管理页；安装器无法静默安装浏览器扩展或替用户完成 Google 登录。
+
+更新先在临时目录安装依赖和执行离线测试，通过后才替换当前版本；账号、密钥、配置与连接授权保留。正在调用、排队、Git 工作区有未提交修改或分支不能快进时停止更新。新版启动失败会尝试回退。见 [自动更新说明](docs/update.md)。
+
+默认 `requestTimeoutMs: 0`、`queueTimeoutMs: 0`，生成与排队不设时间上限；用户取消、连接断开、Google 返回错误仍会终止请求。设置正整数可自行启用毫秒时限。旧配置会保留原值，需要改为 `0` 才关闭限制。流式等待期间有保活注释，正文仍在完整答案结束后返回。
 
 **0.4.0 支持登录后自动接入。** 扩展首次安装授权后，在常用 Chrome／Edge 的管理页点击“登录并自动接入”，选 Google 账号并正常登录，自动新建专用 Build 项目、连接扩展、登记账号；以后复用同账号已记住的项目。服务不会弹出自动化登录浏览器，不读取浏览器 Cookie 文件、不导出 Google 登录凭据、不开放远程调试端口。浏览器会显示扩展调试提示。
 
@@ -34,7 +42,6 @@ Windows PowerShell：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
-npm run start:background
 ```
 
 Linux 桌面（非 root 用户）：
@@ -54,7 +61,7 @@ npm run start:background
 2. 用同一常用浏览器打开管理页，输入管理密钥，点“登录并自动接入”。内置浏览器没有安装扩展时会提示换到常用浏览器。
 3. 在 Google 官方账号选择页选择账号并完成正常登录/二步验证。登录阶段不挂接调试器，不操作密码或验证码。
 4. 首次自动创建一个最小专用 Build 项目，**可能消耗一次模型额度**；创建只提交一次。之后自动复用保存的项目地址并接入账号池，无需手动复制配对码。
-5. 等管理页显示“扩展在线”再调用。关闭浏览器或重启服务后，再点一次自动接入。创建结果不确定时不会自动重复消耗额度。
+5. 等管理页显示“扩展在线”再调用。新版连接器会恢复已配对的账号；启动脚本会立即触发恢复，后台也会定期检查。账号授权失效时再手动接入。创建结果不确定时不会自动重复消耗额度。
 
 详细步骤和权限说明见 [浏览器扩展接入](docs/browser-extension.md)。服务和浏览器当前必须在同一电脑上；没有图形环境的远端服务器不再使用旧版 X11 自动化登录流程，见 [Linux 范围](docs/linux.md)。
 
@@ -72,15 +79,15 @@ $Headers = @{ Authorization = 'Bearer ' + $Credentials.apiKey }
 Invoke-RestMethod http://127.0.0.1:8787/v1/models -Headers $Headers
 ```
 
-模型：`gemini-4-argon`、`gemini-3.8-flash` 及各自的 `-low`、`-medium`、`-high`；无后缀固定 high。兼容 `build/` 前缀。酒馆专用模型为 `build-st/` 前缀，例如 `build-st/gemini-4-argon-low`，需要另装酒馆扩展 `extensions/build-standalone-adapter`。该扩展与浏览器连接器用途不同，两者可以同时使用。
+模型：`gemini-4-argon`、`gemini-3.8-flash` 及各自的 `-low`、`-medium`、`-high`；无后缀固定 high。兼容 `build/` 前缀。酒馆专用模型为 `build-st/` 前缀，例如 `build-st/gemini-4-argon-low`，使用浏览器连接器内置的酒馆分流，无需另装酒馆扩展。
 
 模型和思考档位由 Google 网页原生设置切换，并核对实际请求元数据；不是靠提示词模拟。酒馆启用预设进入输入框，世界书、角色资料和历史进入项目文件，见 [酒馆适配](docs/sillytavern.md)。原有酒馆预设不会因本次升级改变。
 
-酒馆扩展可直接通过“扩展”→“安装扩展”导入 `https://github.com/qiwu622/build-standalone`，无需手动复制目录。已有手动安装版本先禁用旧版并刷新，避免加载两份。可直接复制发布的 [Discord 零基础教程](docs/windows-discord.txt)。
+旧酒馆扩展保留作为兼容入口；使用新版浏览器连接器时请禁用旧版并刷新。检测到仍在运行的旧版时，连接器不会重复包装请求。可直接复制发布的 [Discord 零基础教程](docs/windows-discord.txt)。
 
 只接受文本；工具、图片和强制 JSON 等未实现能力明确拒绝。客户端附带的 `temperature`、`top_p`、`top_k`、惩罚系数、`stop`、`seed`、`logprobs`、`logit_bias`、`prediction` 等可选生成参数自动忽略，使用 Build 原生默认设置，无需在客户端逐项关闭。`reasoning_effort` 也忽略，思考强度仍由模型名后缀决定。该兼容处理同时适用于普通模型、`build/` 和 `build-st/` 模型，以及流式和非流式请求。每次 API 请求创建新聊天，仅使用本次传入的系统与历史。`max_tokens` / `max_completion_tokens` 是输出长度提示，不保证硬截断；token 用量未知，`usage: null`。
 
-`stream: true` 等完整答案结束后发出正文事件、stop、`[DONE]`；响应头 `x-build-streaming: buffered`。请求在有界串行队列执行，等待也计入超时。取消、断连、账号/模型核对失败或清理失败都会报错，不能当作成功回复。
+`stream: true` 等完整答案结束后发出正文事件、stop、`[DONE]`；响应头 `x-build-streaming: buffered`。等待期间每 15 秒发送 SSE 保活注释；若已经发送响应头后失败，通过包含 `error` 的 SSE 数据帧报告，日志保留真实错误状态。请求在有界串行队列执行，排队时限与执行时限独立，默认均关闭。取消、断连、账号/模型核对失败或清理失败都会报错，不能当作成功回复。
 
 普通长历史达到 96 KiB 时转为请求专属 JSONL 文件；酒馆分流始终使用文件。文件展开上限 8 MiB，通过浏览器中的 File 对象上传，不读取任意本机文件。需匹配两份文件末尾标记；生成后清理项目文件。本方法不会扩大 Google 的模型上下文上限，Google 项目历史中的保留状态仍需用户自行检查。
 
@@ -96,7 +103,7 @@ npm test                   无 Google 调用的测试
 npm run demo               独立 demo-data，不能连接真实扩展
 ```
 
-未设置开机自动启动。默认仅监听回环地址。管理/API 密钥分离，扩展仅持有一次性配对产生的内存连接令牌；配对码 5 分钟有效且一次使用。`/bridge/*` 只接受回环连接和本机 Host，拒绝普通网页 Origin。令牌不授予管理/API 权限；断连或服务重启即失效。
+未设置开机自动启动。默认仅监听回环地址。管理/API 密钥分离；配对码短期有效且一次使用。`/bridge/*` 只接受回环连接和本机 Host，拒绝普通网页 Origin。短期连接令牌断连即失效；新版另保存仅限指定账号与项目的自动恢复授权，服务端只保存其哈希，不授予管理/API 或创建项目权限。在管理页断开账号可撤销该授权。
 
 Windows 一键安装的用户重新执行顶部命令即可更新和启动。手动源码安装仍可使用新发布包中的 `scripts/upgrade.ps1 -ReleaseDirectory ... -TargetDirectory ...` 或 `scripts/upgrade.sh ... --target ...`。升级停止本实例，备份允许的源码到 `work/upgrade-*`，保留配置与数据；手动升级默认执行离线测试，一键安装默认跳过，可传 `-RunTests` 开启。浏览器扩展更新后在扩展管理页点“重新加载”并重新配对。
 

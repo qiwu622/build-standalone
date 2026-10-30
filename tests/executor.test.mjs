@@ -17,8 +17,31 @@ function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUse
     for(const fn of listeners)fn({sessionId:'page',method:'Network.requestWillBeSent',params:{requestId:'fixture',request:{method:'POST',url:'https://alkalimakersuite-pa.clients6.google.com/CodeAssistantOffline',headers:{'x-goog-authuser':wireUser},postData:JSON.stringify(data)}}});
   };
   if(context)worker.contextTransport={clear:async(_s,_sid,options)=>{events.push('clear');if(options&&cleanupFails)throw new Error('cleanup failed');},upload:async(_s,_sid,value)=>{ctx=value;value.uploadStarted=true;events.push('upload');}};
-  return {events,request,get context(){return ctx;},get composer(){return composer;},run:()=>worker.generateOne(input.alias,input.body,request)};
+  return {events,request,worker,get context(){return ctx;},get composer(){return composer;},run:()=>worker.generateOne(input.alias,input.body,request)};
 }
+
+test('configured request deadline permits a slow reply past the old 150 second cutoff',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000000});
+  const f=fixture();f.request.deadline=Date.now()+420000;const evaluate=f.worker.evaluate;let polls=0;
+  f.worker.evaluate=async(...args)=>{
+    if(args[2].includes('const responses')){polls++;t.mock.timers.tick(50000);if(polls<5)return {running:true,count:1};}
+    return evaluate(...args);
+  };
+  assert.equal(await f.run(),'VERIFIED');assert.ok(polls>=6);
+});
+
+test('unlimited worker can keep waiting past all previous response deadlines',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000000});const f=fixture(),evaluate=f.worker.evaluate;let polls=0;
+  f.request.deadline=Infinity;
+  f.worker.evaluate=async(...args)=>{if(args[2].includes('const responses')){polls++;t.mock.timers.tick(3600000);if(polls<4)return {running:true,count:1};}return evaluate(...args);};
+  assert.equal(await f.run(),'VERIFIED');assert.ok(polls>=5);
+});
+
+test('an upstream timeout remains the primary error when subsequent cleanup also fails',async()=>{
+  const f=fixture({context:true,cleanupFails:true}),evaluate=f.worker.evaluate;
+  f.worker.evaluate=async(...args)=>args[2].includes('const responses')?{running:false,count:1,error:'Request timed out'}:evaluate(...args);
+  await assert.rejects(f.run(),e=>e.status===504&&e.code==='google_response_timeout'&&e.cleanupCode==='context_cleanup_failed');
+});
 test('direct worker selects model then thinking, verifies actual RPC, and resets new chat',async()=>{
   for(const level of ['low','medium','high']){
     const f=fixture({level});assert.equal(await f.run(),'VERIFIED');assert.equal(f.request.googleThinkingLevel,level);

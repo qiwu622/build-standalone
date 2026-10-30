@@ -1,13 +1,13 @@
 import {join} from 'node:path';
 import {BuildChatWorker,buildPrompt} from './build-chat.mjs';
 import {BuildFileContext,makeFileContext,fileContextThreshold} from './build-file-context.mjs';
-import {checkAbort,error} from './errors.mjs';
+import {AppError,checkAbort,error} from './errors.mjs';
 
 export class BuildExecutor {
   constructor({config,browsers,pool,store,log}){Object.assign(this,{config,browsers,pool,store,log});}
-  async execute(input,{signal,requestId}) {
+  async execute(input,{signal,requestId,deadline}) {
     checkAbort(signal);
-    const request={request_id:requestId,model:input.alias,thinkingLevel:input.resolved.thinkingLevel};
+    const request={request_id:requestId,model:input.alias,thinkingLevel:input.resolved.thinkingLevel,deadline:deadline??(this.config.requestTimeoutMs>0?Date.now()+this.config.requestTimeoutMs:Infinity)};
     const abort=()=>{request.aborted=true;request.abortStatus=signal.reason?.status||499;request.abortReason=signal.reason?.message||'请求已取消';};
     signal.addEventListener('abort',abort,{once:true});
     try {
@@ -29,7 +29,8 @@ export class BuildExecutor {
         });
       });
       checkAbort(signal);return {text,accountId:request.accountId,contextMode:request.contextMode,thinkingLevel:request.thinkingLevel,googleThinkingLevel:request.googleThinkingLevel,upstreamModel:request.upstreamModel};
-    }finally{signal.removeEventListener('abort',abort);}
+    }catch(e){e.stage ||= request.stage;e.accountId ||= request.accountId;await this.log?.record({event:'execution_failed',requestId,model:input.alias,accountId:request.accountId,stage:request.stage,status:e.status,code:e.code,cleanupCode:e.cleanupCode,message:e instanceof AppError?e.message:undefined,submitted:request.submitted});throw e;}
+    finally{signal.removeEventListener('abort',abort);}
   }
 }
 // Explicit demo only. No Google/browser calls or quota. Never used as live fallback.

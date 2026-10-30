@@ -20,7 +20,7 @@ try {
   const state=await readJSON(join(config.dataDir,'pool.json'),{});
   const pool=new BuildAccountPool({state,save:()=>{const snapshot=structuredClone(state);writes=writes.catch(()=>{}).then(()=>atomicJSON(join(config.dataDir,'pool.json'),snapshot));return writes;}});
   await pool.sync(store.accounts);
-  const browsers=new ExtensionBridge({store,pool});
+  const browsers=new ExtensionBridge({store,pool,dataDir:config.dataDir});
   const executor=demo?new DemoExecutor():new BuildExecutor({config,browsers,pool,store,log});
   service=createService({config,credentials,store,pool,browsers,executor,log,demo,instanceId:unlock.instanceId,onShutdown:stop});
   await new Promise((resolve,reject)=>{service.server.once('error',reject);service.server.listen(config.port,config.host,resolve);});

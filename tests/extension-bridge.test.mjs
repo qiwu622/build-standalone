@@ -20,6 +20,16 @@ async function setup(t,{now,commandTimeout=500,pollTimeout=15}={}){
 }
 async function register(bridge,n=0){return bridge.connect({code:bridge.pairing().code,identity:identity(n)});}
 
+test('a lost exchange response can be fetched again without losing commands or repeating events',async t=>{
+  const {bridge}=await setup(t,{commandTimeout:2000});const a=await register(bridge),s=bridge.authenticate(a.token),send=bridge.sender(s);let events=0;
+  send.onEvent(()=>events++);const pending=send('Input.insertText',{text:'SYNTHETIC'});
+  const first=await bridge.exchange(s,{sequence:1});assert.equal(first.commands.length,1);
+  assert.deepEqual(await bridge.exchange(s,{sequence:1}),first);
+  const result={sequence:2,results:[{id:first.commands[0].id,value:{ok:true}}],events:[{method:'Network.requestWillBeSent'}]};
+  await bridge.exchange(s,result);await bridge.exchange(s,result);
+  assert.deepEqual(await pending,{ok:true});assert.equal(events,1);
+});
+
 test('extension pairing is one-use, expires, validates the dedicated project, and preserves cooldown on reconnect',async t=>{
   let now=10000;const {bridge,pool,store}=await setup(t,{now:()=>now});
   const p=bridge.pairing();await assert.rejects(bridge.connect({code:p.code,identity:{...identity(),url:'https://accounts.google.com/login'}}));
@@ -40,7 +50,7 @@ test('bridge isolates tabs, orders model events before results, and revokes dela
   await bridge.exchange(sa,{results:[{id:batch.commands[0].id,value:{ok:true}}],events:[{method:'Network.requestWillBeSent',params:{}}]});
   assert.deepEqual(await pending,{ok:true});assert.deepEqual(observed,['Network.requestWillBeSent','result']);
   await assert.rejects(send('Network.getAllCookies'),e=>e.code==='command_denied');
-  await assert.rejects(send('Runtime.evaluate',{expression:'2'}),e=>e.code==='extension_disconnected');
+  await assert.rejects(send('Runtime.evaluate',{expression:'2'}),e=>e.code==='browser_command_timeout');
   assert.equal(bridge.online(a.account.id),false);assert.throws(()=>bridge.authenticate(a.token));assert.equal(bridge.online(b.account.id),true);
 });
 

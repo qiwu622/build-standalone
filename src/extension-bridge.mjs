@@ -2,6 +2,7 @@ import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {buildAppForAccount} from './build-chat.mjs';
 import {error,checkAbort,safeFailure} from './errors.mjs';
 import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
+import {BridgeGrants} from './bridge-grants.mjs';
 
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);};
 const lost=()=>error('浏览器扩展已断开；请在常用浏览器的专用 Build 标签页重新连接',503,'extension_disconnected');
@@ -10,8 +11,9 @@ const eventNames=new Set(['Inspector.targetCrashed','Network.requestWillBeSent',
 
 // Pairing and transport credentials exist only in memory, never in URLs or logs.
 export class ExtensionBridge {
-  constructor({store,pool,now=Date.now,commandTimeout=15000,pollTimeout=15000}) {
+  constructor({store,pool,dataDir,now=Date.now,commandTimeout=30000,pollTimeout=15000}) {
     Object.assign(this,{store,pool,now,commandTimeout,pollTimeout});this.sessions=new Map();this.pair=null;
+    this.grants=new BridgeGrants(dataDir);
     this.sweep=setInterval(()=>{for(const s of this.sessions.values())if(this.now()-s.lastSeen>65000)this.disconnect(s);},10000);this.sweep.unref?.();
   }
   pairing({automatic=false}={}){this.pair={code:randomBytes(24).toString('hex'),expiresAt:this.now()+(automatic?1200000:300000),automatic};return {...this.pair};}
@@ -20,26 +22,44 @@ export class ExtensionBridge {
     return {expiresAt:this.pair.expiresAt,allowCreate:this.pair.automatic===true,projects:this.store.accounts.map(a=>({email:a.email,url:a.appURL}))};
   }
   authenticate(token){const session=[...this.sessions.values()].find(s=>equal(s.token,token));if(!session)throw error('扩展连接已失效，请重新配对',401,'bridge_unauthorized');return session;}
-  async connect({code,identity}){
-    this.authorize(code);
+  async resumeStatus(key,origin=''){
+    const a=await this.grants.check(key,this.store.accounts,origin);
+    return {account:{id:a.id,email:a.email,appURL:a.appURL},connected:this.online(a.id)};
+  }
+  async connect({code,resumeKey,identity},origin=''){
+    const granted=resumeKey?await this.grants.check(resumeKey,this.store.accounts,origin):null;
+    if(!granted)this.authorize(code);
     const authUser=String(identity?.authUser??'0');
     const appURL=/^\d{1,2}$/.test(authUser)&&buildAppForAccount(identity?.url,authUser);
     if(!identity?.ready||!appURL||typeof identity.email!=='string'||identity.email.length>254||!/^\S+@[^\s@]+\.[^\s@]+$/.test(identity.email))throw error('请先登录 Google 并打开有聊天输入框的专用 Build 项目',409,'project_not_ready');
-    this.pair=null; // Consume before any asynchronous work; concurrent replay is denied.
+    if(granted&&(granted.email.toLowerCase()!==identity.email.toLowerCase()||granted.appURL!==appURL))throw error('自动连接的账号或项目与原授权不一致',409,'resume_identity_mismatch');
+    if(!granted)this.pair=null; // Consume before any asynchronous work.
     const existing=this.store.accounts.find(a=>a.email.toLowerCase()===identity.email.toLowerCase());
+    if(this.sessions.get(existing?.id)?.busy)throw error('账号正在执行请求，稍后自动恢复连接',409,'busy');
     for(const s of this.sessions.values())if(s.accountId===existing?.id)this.disconnect(s);
-    const account=await this.store.add({id:existing?.id,email:identity.email,appURL,authUser,transport:'extension'});
+    const account=granted||await this.store.add({id:existing?.id,email:identity.email,appURL,authUser,transport:'extension'});
     if(existing?.enabled===false)await this.store.enabled(account.id,false);
-    await this.pool.sync(this.store.accounts);await this.pool.imported(account.id);
+    await this.pool.sync(this.store.accounts);if(!granted)await this.pool.imported(account.id);
+    const savedKey=granted?resumeKey:await this.grants.issue(account,origin);
     const token=randomBytes(32).toString('hex');
     this.sessions.set(account.id,{accountId:account.id,token,appURL,lastSeen:this.now(),pending:new Map(),queue:[],listeners:new Set(),waiter:null,busy:false});
-    return {token,account:{id:account.id,email:account.email},message:'已连接当前专用 Build 项目；请保持浏览器和标签页打开。'};
+    return {token,resumeKey:savedKey,account:{id:account.id,email:account.email},message:'已连接当前专用 Build 项目；下次启动将自动恢复连接。'};
   }
   online(id){const s=this.sessions.get(id);return !!s&&this.now()-s.lastSeen<65000;}
   snapshot(){return this.store.accounts.map(a=>({accountId:a.id,connected:this.online(a.id)}));}
   disconnect(session){if(!session)return;if(this.sessions.get(session.accountId)===session)this.sessions.delete(session.accountId);session.closed=true;session.waiter?.();for(const p of session.pending.values()){clearTimeout(p.timer);p.reject(lost());}session.pending.clear();session.queue=[];session.listeners.clear();}
-  disconnectAccount(id){this.disconnect(this.sessions.get(id));}
-  async exchange(session,{results=[],events=[]},signal){
+  async disconnectAccount(id){await this.grants.revoke(id);this.disconnect(this.sessions.get(id));}
+  async exchange(session,body,signal){
+    if(session.closed)throw lost();
+    const sequence=body.sequence;
+    if(sequence===undefined)return this.exchangeOnce(session,body,signal); // old connectors
+    if(!Number.isSafeInteger(sequence)||sequence<1)throw error('扩展交换序号无效');
+    if(sequence===session.lastExchange?.sequence)return session.lastExchange.promise;
+    if(sequence!==(session.lastExchange?.sequence||0)+1)throw error('扩展交换序号不同步',409,'exchange_sequence_invalid');
+    const entry={sequence};session.lastExchange=entry;
+    entry.promise=this.exchangeOnce(session,body,signal);return entry.promise;
+  }
+  async exchangeOnce(session,{results=[],events=[]},signal){
     if(session.closed)throw lost();
     if(session.waiter)throw error('扩展存在重复连接，请重新配对',409,'duplicate_poll');
     if(!Array.isArray(results)||results.length>16||!Array.isArray(events)||events.length>100)throw error('扩展消息格式无效');
@@ -63,7 +83,7 @@ export class ExtensionBridge {
       const id=randomBytes(12).toString('hex');
       const timeout=method==='Runtime.evaluate'&&params.expression===identityExpression?Math.max(this.commandTimeout,25000):this.commandTimeout;
       return new Promise((resolve,reject)=>{
-        const timer=setTimeout(()=>this.disconnect(session),timeout);
+        const timer=setTimeout(()=>{session.pending.delete(id);reject(error('浏览器命令等待超时；连接将自动恢复，本次请求不会重发',504,'browser_command_timeout'));this.disconnect(session);},timeout);
         session.pending.set(id,{resolve,reject,timer});session.queue.push({id,method,params,deadline:this.now()+timeout});session.waiter?.();
       });
     };

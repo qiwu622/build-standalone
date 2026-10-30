@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tempDir,body} from './helpers.mjs';
-import {initStorage,loadConfig,profilePath,AccountStore,acquireLock} from '../src/storage.mjs';
+import {initStorage,loadConfig,profilePath,AccountStore,acquireLock,recoverDeadServiceLock} from '../src/storage.mjs';
 import {resolveBuildModel,readBuildThinking,configureBuildThinking} from '../src/build-thinking.mjs';
 import {makeFileContext,unwrapFileReply,textChunks,BuildFileContext} from '../src/build-file-context.mjs';
 import {BuildAccountPool} from '../src/build-pool.mjs';
@@ -17,6 +17,27 @@ test('first initialization generates independent keys and rerun retains credenti
   assert.deepEqual(first,second);assert.notEqual(first.apiKey,first.adminKey);assert.equal(await readFile(join(dataDir,'sentinel'),'utf8'),'KEEP');
   const other=await tempDir(t);assert.notEqual((await initStorage({...config,dataDir:other})).apiKey,first.apiKey);
   const release=await acquireLock(dataDir);await assert.rejects(acquireLock(dataDir),/服务锁/);await release();
+});
+
+test('new installs default to unlimited execution and queue timeouts',async t=>{
+  const dir=await tempDir(t),config=await loadConfig({file:join(dir,'missing')});
+  assert.equal(config.requestTimeoutMs,0);assert.equal(config.queueTimeoutMs,0);
+  await assert.rejects(loadConfig({file:join(dir,'missing'),overrides:{requestTimeoutMs:-1}}));
+});
+
+test('unlimited file cleanup still settles after a caller cancels mid-wait',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000});
+  const worker={current:{deadline:Infinity,aborted:false},aborted:()=>{}},transport=new BuildFileContext(worker,{timeoutMs:10});let calls=0;
+  await assert.rejects(transport.wait(null,'page',async()=>{calls++;if(calls>1)throw new Error('cleanup ignored cancellation');worker.current.aborted=true;t.mock.timers.tick(20);return false;},'CLEANUP_CANCELLED',{cancel:false}),/CLEANUP_CANCELLED/);
+  assert.equal(calls,1);
+});
+
+test('startup only recovers a dead service lock and never kills or replaces a live process',async t=>{
+  const dataDir=await tempDir(t),file=join(dataDir,'service.lock');
+  await writeFile(file,JSON.stringify({pid:12345,instanceId:'stale'}));
+  assert.equal(await recoverDeadServiceLock(dataDir,{alive:()=>true}),false);
+  assert.equal(await recoverDeadServiceLock(dataDir,{alive:()=>false}),true);
+  const release=await acquireLock(dataDir);assert.equal(await recoverDeadServiceLock(dataDir),false);await release();
 });
 test('profile paths are per-account and cannot escape; duplicate Google identity rejected',async t=>{
   const dataDir=await tempDir(t),config={dataDir};await initStorage(config);
