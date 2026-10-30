@@ -8,7 +8,20 @@ const {oai_settings,setOpenAIMessages}=openAI;
 const tagger=createTagger(Array.from(crypto.getRandomValues(new Uint8Array(12)),x=>x.toString(16).padStart(2,'0')).join(''));
 let hooked=null,statusElement,generationType='normal';
 const context=()=>getContext();
-const settings=()=>context().extensionSettings[key]??={enabled:true};
+function settings(){
+ const ctx=context();
+ const saved=ctx.extensionSettings[key]??={};
+ // One-time browser migration: old adapter settings must not leave the new
+ // built-in splitter off. Later explicit user choices remain respected.
+ let changed=false;
+ if(owner==='browser'&&saved.browserDefaultEnabled!==1){
+  saved.enabled=true;saved.browserDefaultEnabled=1;changed=true;
+ }else if(typeof saved.enabled!=='boolean'){
+  saved.enabled=true;changed=true;
+ }
+ if(changed)ctx.saveSettingsDebounced?.();
+ return saved;
+}
 const active=()=>settings().enabled&&isBuildConnection({chat_completion_source:oai_settings.chat_completion_source,model:oai_settings.chat_completion_source==='openai'?oai_settings.openai_model:oai_settings.custom_model,reverse_proxy:oai_settings.reverse_proxy});
 const messages={
  preset_not_ready:'尚未读取到本次酒馆预设。请刷新酒馆后发送聊天；“测试连接”请使用普通 gemini 模型。',
@@ -61,12 +74,13 @@ function mount(){
  const host=document.querySelector('#extensions_settings2')||document.querySelector('#extensions_settings');
  if(!host||document.getElementById('build-standalone-adapter-settings'))return;
  const panel=document.createElement('div');panel.dataset.buildAdapterOwner=owner;panel.id='build-standalone-adapter-settings';panel.className='inline-drawer';
- panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>直接读取当前启用预设</label><p>版本 0.5.0（'+(owner==='browser'?'浏览器连接器内置':'兼容酒馆扩展')+'）。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>允许合并系统消息和后期提示词修改；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
+ panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>启用酒馆预设分流（默认开启）</label><p>版本 0.5.0（'+(owner==='browser'?'浏览器连接器内置':'兼容酒馆扩展')+'）。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>允许合并系统消息和后期提示词修改；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
  host.append(panel);statusElement=panel.querySelector('[data-status]');
  const enabled=panel.querySelector('[data-enable]');enabled.checked=settings().enabled;
  enabled.addEventListener('change',()=>{settings().enabled=enabled.checked;context().saveSettingsDebounced();status('设置已保存。');});
 }
 const ctx=context();
+settings();
 const instance={owner,version:'0.5.0'};
 globalThis[singleton]=instance;
 ctx.eventSource.on(ctx.eventTypes.GENERATION_STARTED,start);

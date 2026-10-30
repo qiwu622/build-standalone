@@ -7,19 +7,36 @@ import {extensionBundle} from '../scripts/build-extension.mjs';
 import {enableSillyTavernSite,sitePattern} from '../extensions/build-browser-bridge/sillytavern-sites.mjs';
 import {parseCompletion} from '../src/protocol.mjs';
 
-async function pageFixture({legacy=false,loading=false}={}){
+async function pageFixture({legacy=false,loading=false,adapterSettings}={}){
  const handlers=new Map(),notices=[],panels=[];
  const oldPanel=legacy?{querySelector:()=>null,append:n=>notices.push(n)}:null;
  const doc={scripts:[],getElementById:()=>oldPanel,createElement:()=>({dataset:{}}),querySelector:s=>s==='#preloader, #loader'?loading:!s.startsWith('#extensions_')};
  const context={extensionSettings:{},chat:[{role:'user',content:'CURRENT'}],getTokenCountAsync:async()=>30,eventTypes:{GENERATION_STARTED:'start',CHAT_COMPLETION_SETTINGS_READY:'send',APP_READY:'ready'},eventSource:{on:(e,f)=>{const list=handlers.get(e)||[];list.push(f);handlers.set(e,list);},makeLast:(e,f)=>{const list=handlers.get(e)||[];list.push(f);handlers.set(e,list);}}};
+ if(adapterSettings!==undefined)context.extensionSettings.build_standalone_adapter=structuredClone(adapterSettings);
+ let saves=0;context.saveSettingsDebounced=()=>saves++;
  const settings={chat_completion_source:'custom',custom_model:'build-st/gemini-4-argon-low',prompts:[{identifier:'main'}]};
  const openAI={oai_settings:settings,promptManager:{serviceSettings:settings,preparePrompt:p=>({...p})},setOpenAIMessages:x=>x};
  const sandbox={document:doc,crypto:webcrypto,console,URL,SillyTavern:{getContext:()=>context}};
  const code=(await extensionBundle()).replace('watchSillyTavernPage();','globalThis.bridgeTest={connectSillyTavernPage,installSillyTavern};');
  vm.runInNewContext(code,sandbox);
  const connect=()=>sandbox.bridgeTest.connectSillyTavernPage({root:sandbox,doc,loadOpenAI:async()=>openAI});
- return {connect,sandbox,doc,context,handlers,notices,panels,openAI};
+ return {connect,sandbox,doc,context,handlers,notices,panels,openAI,get saves(){return saves;}};
 }
+
+test('browser splitter defaults on, migrates old disabled settings once and preserves a later opt-out',async()=>{
+ for(const adapterSettings of [undefined,{}, {enabled:false}, {enabled:true}]){
+  const p=await pageFixture({adapterSettings});await p.connect();
+  const saved=p.context.extensionSettings.build_standalone_adapter;
+  assert.equal(saved.enabled,true);assert.equal(saved.browserDefaultEnabled,1);assert.equal(p.saves,1);
+  const prepared=p.openAI.promptManager.preparePrompt({identifier:'main',role:'system',content:'PRESET'});
+  assert.match(prepared.content,/\[\[BST:/);
+  await p.connect();assert.equal(p.saves,1);
+  saved.enabled=false;
+  assert.equal(p.openAI.promptManager.preparePrompt({identifier:'main',role:'system',content:'PRESET'}).content,'PRESET');
+  const reloaded=await pageFixture({adapterSettings:saved});await reloaded.connect();
+  assert.equal(reloaded.context.extensionSettings.build_standalone_adapter.enabled,false);assert.equal(reloaded.saves,0);
+ }
+});
 
 test('shipped MAIN-world bundle equals source and is limited to local pages by default',async()=>{
  assert.equal((await readFile(new URL('../extensions/build-browser-bridge/sillytavern-main.js',import.meta.url),'utf8')).replace(/\r\n/g,'\n'),await extensionBundle());
