@@ -120,13 +120,16 @@ export class BuildChatWorker {
         if(!page?.email || !expected?.email || page.email.toLowerCase()!==expected.email.toLowerCase() || page.authUser!==(expected.auth_user||'0'))throw safeFailure('account_mismatch');
         await this.log('account_context',{reason:JSON.stringify({phase,path:page?.path,authUser:page?.authUser,expectedAuthUser:expected?.auth_user,identityMatches:page?.email&&expected?.email?page.email.toLowerCase()===expected.email.toLowerCase():null})},request);
     }
-    async wait(send, sid, predicate, timeout = 12000, {allowPreviousRefusal=false}={}) {
+    async wait(send, sid, predicate, timeout = 12000, {allowPreviousResponseError=false}={}) {
         const until = this.current?.deadline===Infinity?Infinity:Date.now()+timeout;
         do {
             this.aborted(this.current);
             const state = await this.evaluate(send, sid, snapshotScript);
-            const previousRefusal=allowPreviousRefusal&&!this.current?.submitted&&state?.ready&&!state.running&&!state.pageError&&state.responseError&&isContentRefusal(state.responseError);
-            if(state?.error&&!previousRefusal)throw failure('Google Build 页面返回错误',502,'google_page_error');
+            // Only errors scoped to an ended, previous response can be cleared
+            // by a fresh chat. Account/quota/global errors remain blocking.
+            const persistentError=/quota|rate[\s_-]*limit|resource[\s_.-]*exhausted|\b(?:401|403|429)\b|sign[ -]?in|log[ -]?in|authenticat|unauthori[sz]ed|permission|access denied|subscription|billing|限额|配额|额度|频率|登录|登陆|权限|订阅|结算/i.test(state?.responseError||'');
+            const previousError=allowPreviousResponseError&&!this.current?.submitted&&state?.ready&&!state.running&&state.count>0&&!state.pageError&&state.responseError&&!persistentError;
+            if(state?.error&&!previousError)throw failure('Google Build 页面返回错误',502,'google_page_error');
             if (predicate(state)) return state;
             await sleep(350);
         } while (Date.now() < until);
@@ -211,15 +214,15 @@ export class BuildChatWorker {
                 }
             });
             await send('Network.enable',{},sid);
-            request.stage='wait_ready';await this.log('request_stage',{},request);let state = await this.wait(send, sid, s=>s.ready,45000,{allowPreviousRefusal:true});
-            // A previous conversation's policy refusal is not the outcome of
-            // this distinct, unsent request. Preserve the refusal in history,
+            request.stage='wait_ready';await this.log('request_stage',{},request);let state = await this.wait(send, sid, s=>s.ready,45000,{allowPreviousResponseError:true});
+            // A previous conversation's error is not the outcome of
+            // this distinct, unsent request. Preserve the old reply in history,
             // open a clean chat, and require all errors to clear before uploads.
             if(state.error){
-                await this.context(send,sid,'before_previous_refusal_reset',request);
+                await this.context(send,sid,'before_previous_error_reset',request);
                 await this.click(send,sid,'New chat');await this.click(send,sid,'Start new chat');
                 state=await this.wait(send,sid,s=>s.ready&&!s.running&&s.count===0);
-                await this.log('previous_refusal_cleared',{code:'previous_content_refused'},request);
+                await this.log('previous_response_error_cleared',{code:'previous_response_error'},request);
             }
             // Offline Build tasks can outlive a browser restart. Cancel only the
             // dedicated proxy app's orphaned task before starting a fresh chat.

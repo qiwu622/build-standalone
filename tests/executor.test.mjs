@@ -24,23 +24,28 @@ function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUse
 }
 
 const googlePolicyRefusal="error\nThe model output could not be generated. This output contains sensitive words that violate Google's [Generative AI Prohibited Use policy](https://policies.google.com/terms/generative-ai/use-policy).";
+const googleFilterRefusal="error\nThis request was blocked by Gemini's filters. They can occasionally trigger by mistake on safe coding, security, or biology-related queries. Please try rephrasing your prompt. You can [send feedback](https://ai.google.dev/gemini-api/docs/troubleshooting#file-bug) or read more about [our policies here](https://policies.google.com/terms/generative-ai/use-policy).";
 const previousRefusal={ready:true,count:1,running:false,error:googlePolicyRefusal,pageError:'',responseError:googlePolicyRefusal};
-test('a previous chat policy error is cleared before a distinct new request uploads files',async()=>{
-  const f=fixture({initialState:previousRefusal,context:true});
+test('ended previous response errors are cleared before a distinct new request uploads files',async()=>{
+ for(const error of [googlePolicyRefusal,googleFilterRefusal,'Request timed out','Something went wrong. Please try again.']){
+  const f=fixture({initialState:{...previousRefusal,error,responseError:error},context:true});
   assert.equal(await f.run(),'VERIFIED');
   assert.ok(f.events.indexOf('Start new chat')<f.events.indexOf('attach'));
   assert.equal(f.events.filter(x=>x==='Send').length,1);
+ }
 });
 test('preflight still blocks global page errors and previous quota errors without sending',async()=>{
-  for(const state of [{...previousRefusal,pageError:'Sign in required'}, {...previousRefusal,error:'Quota exceeded',responseError:'Quota exceeded'}]){
+  for(const state of [{...previousRefusal,pageError:'Sign in required'}, {...previousRefusal,running:true}, {...previousRefusal,count:0}, ...['Quota exceeded','RESOURCE_EXHAUSTED','HTTP 429','Rate limit exceeded','Sign in required','Permission denied','Subscription required','请求频率超过限制'].map(error=>({...previousRefusal,error,responseError:error}))]){
     const f=fixture({initialState:state});await assert.rejects(f.run(),e=>e.code==='google_page_error');assert.ok(!f.events.includes('Send'));
   }
 });
 test('a Google policy error from the new request is classified and never automatically retried',async()=>{
+ for(const error of [googlePolicyRefusal,googleFilterRefusal]){
   const f=fixture(),evaluate=f.worker.evaluate;
-  f.worker.evaluate=async(...args)=>args[2].includes('const responses')?{ready:true,count:1,running:false,error:googlePolicyRefusal}:evaluate(...args);
+  f.worker.evaluate=async(...args)=>args[2].includes('const responses')?{ready:true,count:1,running:false,error}:evaluate(...args);
   await assert.rejects(f.run(),e=>e.status===422&&e.code==='content_refused');
   assert.equal(f.events.filter(x=>x==='Send').length,1);
+ }
 });
 
 test('configured request deadline permits a slow reply past the old 150 second cutoff',async t=>{
