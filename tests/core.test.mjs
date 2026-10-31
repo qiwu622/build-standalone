@@ -32,6 +32,22 @@ test('unlimited file cleanup still settles after a caller cancels mid-wait',asyn
   assert.equal(calls,1);
 });
 
+test('failed-request cleanup honors its own deadline while generation remains unlimited',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000});
+  const worker={current:{deadline:Infinity,cleanupDeadline:1010,aborted:false},aborted:()=>{}};
+  const transport=new BuildFileContext(worker,{timeoutMs:10});let calls=0;
+  await assert.rejects(transport.wait(null,'page',async()=>{if(++calls>1)throw new Error('unbounded_failure_cleanup');t.mock.timers.tick(20);return false;},'FAILED_CLEANUP',{cancel:false}),/FAILED_CLEANUP/);
+  assert.equal(calls,1);assert.equal(worker.current.deadline,Infinity);
+});
+
+test('ordinary unlimited file preparation still waits without the cleanup deadline',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000});
+  const worker={current:{deadline:Infinity,aborted:false},aborted:()=>{}};
+  const transport=new BuildFileContext(worker,{timeoutMs:10});let calls=0;
+  await transport.wait(null,'page',async()=>{calls++;t.mock.timers.tick(10000);return calls===2;},'NOT_TIMED_OUT');
+  assert.equal(calls,2);assert.equal(worker.current.deadline,Infinity);
+});
+
 test('startup only recovers a dead service lock and never kills or replaces a live process',async t=>{
   const dataDir=await tempDir(t),file=join(dataDir,'service.lock');
   await writeFile(file,JSON.stringify({pid:12345,instanceId:'stale'}));

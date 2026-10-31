@@ -4,6 +4,7 @@ import {BuildChatWorker} from '../src/build-chat.mjs';
 import {body} from './helpers.mjs';
 import {parseCompletion} from '../src/protocol.mjs';
 import {encodeEnvelope} from '../extensions/build-standalone-adapter/transport.js';
+import {BuildFileContext} from '../src/build-file-context.mjs';
 
 function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUser='0',wire=true,context=false,cleanupFails=false,text='VERIFIED',apiBody,threshold,initialState}={}) {
   const listeners=new Set(),events=[],request={};const input=parseCompletion(apiBody||{...body,model:'gemini-4-argon-'+level});
@@ -62,6 +63,23 @@ test('an upstream timeout remains the primary error when subsequent cleanup also
   const f=fixture({context:true,cleanupFails:true}),evaluate=f.worker.evaluate;
   f.worker.evaluate=async(...args)=>args[2].includes('const responses')?{running:false,count:1,error:'Request timed out'}:evaluate(...args);
   await assert.rejects(f.run(),e=>e.status===504&&e.code==='google_response_timeout'&&e.cleanupCode==='context_cleanup_failed');
+});
+
+test('a pre-generation identity failure is logged before bounded cleanup and releases with its original error',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000});
+  const f=fixture({context:true});f.request.deadline=Infinity;const seen=[];
+  f.worker.context=async(_send,_sid,phase)=>{if(phase==='before_new_chat')throw Object.assign(new Error('identity check failed'),{status:503,code:'identity_control_missing'});};
+  f.worker.log=async(event,extra)=>seen.push({event,...extra});
+  const transport=new BuildFileContext(f.worker,{timeoutMs:10}),clear=f.worker.contextTransport.clear;
+  f.worker.contextTransport.timeoutMs=10;let cleanupPolls=0;
+  f.worker.contextTransport.clear=async(send,sid,options)=>{
+    if(!options)return clear(send,sid,options);
+    return transport.wait(send,sid,async()=>{if(++cleanupPolls>1)throw new Error('unbounded_failure_cleanup');t.mock.timers.tick(20);return false;},'FAILED_CLEANUP',{cancel:false});
+  };
+  await assert.rejects(f.run(),e=>e.code==='identity_control_missing'&&e.status===503&&e.cleanupCode==='context_cleanup_failed');
+  assert.equal(cleanupPolls,1);assert.ok(!f.events.includes('Send'));assert.equal(f.request.deadline,Infinity);
+  assert.ok(seen.findIndex(x=>x.event==='execution_error'&&x.code==='identity_control_missing')>=0);
+  assert.ok(seen.findIndex(x=>x.event==='execution_error')<seen.findIndex(x=>x.event==='context_cleanup_failed'));
 });
 test('direct worker selects model then thinking, verifies actual RPC, and resets new chat',async()=>{
   for(const level of ['low','medium','high']){

@@ -241,6 +241,7 @@ export class BuildChatWorker {
             }
             // Start AFTER saving the files so earlier requests and edit checkpoints
             // cannot become conversational history for this request.
+            request.stage='account_verification_after_files';await this.log('request_stage',{},request);
             await this.context(send,sid,'before_new_chat',request);
             request.stage='new_chat';await this.click(send, sid, 'New chat');
             await this.click(send, sid, 'Start new chat');
@@ -305,7 +306,14 @@ export class BuildChatWorker {
                     await sleep(this.pollInterval);
                 }
                 throw failure('Build 等待回复达到配置的执行时限',504,'build_response_timeout');
-            } catch(e){primaryError=e;throw e;} finally {
+            } catch(e){
+                primaryError=e;
+                // Generation remains unlimited. Once it has already failed,
+                // cleanup must not hide that failure or hold the queue forever.
+                request.cleanupDeadline=Date.now()+(this.contextTransport?.timeoutMs??45000);
+                await this.log('execution_error',{status:e.status,code:e.code||e.rotationReason||'build_execution_failed',message:e instanceof AppError?e.message:undefined,submitted:request.submitted===true},request);
+                throw e;
+            } finally {
                 let stoppedCleanly=true;
                 try{await this.stopGeneration(send,sid);}catch(error){stoppedCleanly=false;await this.log('context_cancel_unsettled',{error},request);}
                 if(!stoppedCleanly){if(primaryError)primaryError.cleanupCode='context_cleanup_failed';else throw safeFailure('context_cleanup_failed');}
