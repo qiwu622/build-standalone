@@ -3,6 +3,34 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {makeAttachmentContext,BuildAttachmentContext,attachmentUploadExpression} from '../src/build-attachment-context.mjs';
 
+test('ST attachment roundtrips mixed message parts without copying inline preset text',()=>{
+ const segments=[
+  {message:0,part:0,role:'system',source:'main',placement:'inline',text:'  PRESET😀\r\n'},
+  {message:0,part:1,role:'system',source:'worldInfoBefore',placement:'file',text:'WORLD\n\t"\\😀 '.repeat(40000)},
+  {message:0,part:2,role:'system',source:'jailbreak',placement:'inline',text:'POST_PRESET'},
+  {message:1,part:0,role:'assistant',name:'角色😀',source:'chatHistory-1',placement:'file',text:'HISTORY  \r\n'},
+  {message:2,part:0,role:'user',source:'currentUser',placement:'inline',text:'QUESTION'},
+  {message:3,part:0,role:'developer',source:'context',placement:'file',text:''}
+ ];
+ const input={sillytavern:{segments,generationType:'normal'}},original=structuredClone(input),ctx=makeAttachmentContext(input),other=makeAttachmentContext(input),stored=JSON.parse(ctx.files[0].text);
+ assert.equal(ctx.files.length,1);assert.notEqual(ctx.files[0].name,other.files[0].name);assert.equal(ctx.bytes,Buffer.byteLength(ctx.files[0].text));
+ assert.deepEqual(stored.segments.map(({segment,...s})=>({...s,text:s.placement==='inline'?segments[segment-1].text:s.text})),segments);
+ for(const s of segments){if(s.placement==='inline'){assert.ok(ctx.prompt.includes(s.text));assert.ok(!ctx.files[0].text.includes(s.text));}else if(s.text)assert.ok(!ctx.prompt.includes(s.text));}
+ assert.ok(!ctx.prompt.includes(other.files[0].name));assert.equal(stored.request,ctx.nonce);assert.deepEqual(input,original);
+ assert.ok(!ctx.prompt.includes('BUILD_CONTEXT'));assert.equal(ctx.marker,undefined);
+});
+
+test('ST attachment keeps generation actions and enforces separate preset and file size budgets',()=>{
+ const preset={message:0,part:0,role:'system',source:'main',placement:'inline',text:'PRESET_ONLY'};
+ for(const [generationType,action] of Object.entries({normal:'Answer the latest actual user',continue:'Continue the final assistant',impersonate:'Write the next user',quiet:'Answer the supplied quiet'})){
+  const ctx=makeAttachmentContext({sillytavern:{generationType,segments:[preset]},requestedMaxOutputTokens:128});
+  assert.ok(ctx.prompt.includes(action));assert.ok(ctx.prompt.includes('Requested output limit: 128 tokens.'));
+  assert.ok(JSON.parse(ctx.files[0].text).segments.every(s=>!Object.hasOwn(s,'text')));
+ }
+ assert.throws(()=>makeAttachmentContext({sillytavern:{segments:[{...preset,text:'x'.repeat(1024*1024)}]}}),e=>e.code==='inline_too_large');
+ assert.throws(()=>makeAttachmentContext({sillytavern:{segments:[{...preset,placement:'file',text:'x'.repeat(8*1024*1024)}]}}),e=>e.code==='context_too_large');
+});
+
 test('attachment serializes complete roles and Unicode verbatim without JSONL fragmentation or a receipt',()=>{
  const input={system:'系统\r\n 😀  ',messages:[{role:'user',content:'甲\n\t"\\😀 '.repeat(20000)},{role:'model',content:'old response'},{role:'user',content:'last request'}]};
  const a=makeAttachmentContext(input),b=makeAttachmentContext(input);

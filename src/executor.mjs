@@ -1,6 +1,6 @@
 import {join} from 'node:path';
 import {BuildChatWorker} from './build-chat.mjs';
-import {BuildFileContext,makeFileContext} from './build-file-context.mjs';
+import {BuildFileContext} from './build-file-context.mjs';
 import {makeAttachmentContext} from './build-attachment-context.mjs';
 import {AppError,checkAbort,error} from './errors.mjs';
 
@@ -14,7 +14,7 @@ export class BuildExecutor {
     try {
       // Validate file expansion before starting any browser or selecting an account.
       const {buildInput}=await import('./build-chat.mjs');
-      (input.body.sillytavern?makeFileContext:makeAttachmentContext)(buildInput(input.body));
+      makeAttachmentContext(buildInput(input.body));
       await this.pool.sync(this.store.accounts);
       if(this.browsers.online&&!this.store.accounts.some(a=>a.enabled!==false&&this.browsers.online(a.id)))throw error('没有在线的浏览器扩展；请先在常用浏览器连接专用 Build 项目',503,'extension_disconnected');
       request.accountAvailable=this.browsers.online?id=>this.browsers.online(id):undefined;

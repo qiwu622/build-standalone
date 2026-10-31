@@ -6,7 +6,8 @@ import {webcrypto} from 'node:crypto';
 import * as transport from '../extensions/build-standalone-adapter/transport.js';
 import {createTagger,hookPromptManager,readPresetSegments,encodeEnvelope,errorEnvelope,prepareOutgoing,applyOutgoing} from '../extensions/build-standalone-adapter/transport.js';
 import {parseCompletion} from '../src/protocol.mjs';
-import {makeFileContext,unwrapFileReply} from '../src/build-file-context.mjs';
+import {unwrapFileReply} from '../src/build-file-context.mjs';
+import {makeAttachmentContext} from '../src/build-attachment-context.mjs';
 import {buildInput} from '../src/build-chat.mjs';
 import {fixture} from './helpers.mjs';
 
@@ -57,18 +58,16 @@ test('direct reader does not expand macros twice or copy disabled preset alterna
 });
 test('ST preserves exact preset text inline while history, World Info and injected context stay in files',()=>{
  const f=sourceFixture(),input=parseCompletion(request(f.segments));
- const ctx=makeFileContext(buildInput(input.body));
+ const ctx=makeAttachmentContext(buildInput(input.body));
  assert.equal(input.resolved.thinkingLevel,'low');
  assert.ok(ctx.prompt.includes(f.preset));assert.ok(ctx.prompt.includes('POST_PRESET'));assert.ok(ctx.prompt.includes('CURRENT'));
  const stored=ctx.files.map(f=>f.text).join('\n');
  for(const text of ['PRESET_EXACT','POST_PRESET','CURRENT'])assert.ok(!stored.includes(text));
  for(const text of ['WORLD_ONLY','PAST_ONLY','PAST_REPLY'])assert.ok(!ctx.prompt.includes(text));
- const rows=ctx.files[1].text.trim().split('\n').map(JSON.parse),rebuilt=new Map();
- for(const row of rows)if(row.segment)rebuilt.set(row.segment,(rebuilt.get(row.segment)||'')+row.text);
- f.segments.forEach((s,i)=>{if(s.placement==='file')assert.equal(rebuilt.get(i+1),s.text);});
- const layout=ctx.files[0].text.trim().split('\n').map(JSON.parse).filter(r=>r.segment);
+ assert.equal(ctx.files.length,1);const layout=JSON.parse(ctx.files[0].text).segments;
+ f.segments.forEach((s,i)=>{if(s.placement==='file')assert.equal(layout[i].text,s.text);else assert.equal(Object.hasOwn(layout[i],'text'),false);});
  assert.deepEqual(layout.map(r=>[r.message,r.part,r.role]),f.segments.map(s=>[s.message,s.part,s.role]));
- assert.equal(unwrapFileReply(ctx.marker+'\nANSWER',ctx),'ANSWER');
+ assert.equal(ctx.marker,undefined);assert.equal(unwrapFileReply('ANSWER',ctx),'ANSWER');
 });
 test('ST markers never modify saved presets; missing boundaries and metadata fail closed',()=>{
  const f=sourceFixture(),raw={identifier:'main',role:'system',content:'ORIGINAL'};
@@ -78,9 +77,9 @@ test('ST markers never modify saved presets; missing boundaries and metadata fai
  assert.throws(()=>readPresetSegments([{role:'user',content:marked.replace(':END]]',':BROKEN]]')}],f.tagger),/broken_boundary/);
  assert.throws(()=>readPresetSegments([{role:'user',content:'NO_PRESET'}],f.tagger),/preset_not_ready/);
 });
-test('ST long inline presets are never silently converted to project-file text',()=>{
+test('ST long inline presets are never silently converted to attachment text',()=>{
  const preset='长预设😀\n'.repeat(10000),segments=[{message:0,part:0,role:'system',source:'main',placement:'inline',text:preset},{message:1,part:0,role:'user',source:'chatHistory-1',placement:'file',text:'CONTEXT'}];
- const ctx=makeFileContext(buildInput(parseCompletion(request(segments)).body));
+ const ctx=makeAttachmentContext(buildInput(parseCompletion(request(segments)).body));
  assert.ok(ctx.prompt.includes(preset));assert.ok(!ctx.files.some(f=>f.text.includes('长预设')));
 });
 test('ST settings hook survives custom backend projection, rejects custom-body conflicts, and ignores other providers',()=>{
@@ -149,7 +148,7 @@ test('ST malformed transport never reaches a browser executor; ordinary API rema
 test('ST continuation preserves final assistant and post-history system instructions',()=>{
  const segments=[{message:0,part:0,role:'assistant',source:'chatHistory-1',placement:'file',text:'UNFINISHED'}, {message:1,part:0,role:'system',source:'jailbreak',placement:'inline',text:'POST_INSTRUCTIONS'}];
  const input=parseCompletion({...request(segments),messages:[encodeEnvelope(segments,'continue',30)]});
- assert.ok(makeFileContext(buildInput(input.body)).prompt.includes('Continue the final assistant message.'));
+ assert.ok(makeAttachmentContext(buildInput(input.body)).prompt.includes('Continue the final assistant message.'));
  assert.equal(input.body.sillytavern.segments.at(-1).role,'system');
 });
 

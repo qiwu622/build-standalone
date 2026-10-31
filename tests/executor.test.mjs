@@ -18,8 +18,8 @@ function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUse
   worker.fillAndSend=async(_send,_sid,prompt)=>{composer=prompt;events.push('Send');submitted=true;if(!wire)return;const data=Array(19).fill(null);data[7]='models/'+wireModel;data[18]=[null,null,null,{low:1,medium:2,high:3}[wireLevel]];
     for(const fn of listeners)fn({sessionId:'page',method:'Network.requestWillBeSent',params:{requestId:'fixture',request:{method:'POST',url:'https://alkalimakersuite-pa.clients6.google.com/CodeAssistantOffline',headers:{'x-goog-authuser':wireUser},postData:JSON.stringify(data)}}});
   };
-  if(context)worker.contextTransport={clear:async(_s,_sid,options)=>{events.push('clear');if(options&&cleanupFails)throw new Error('cleanup failed');},upload:async(_s,_sid,value)=>{ctx=value;value.uploadStarted=true;events.push('upload');}};
-  worker.attachmentTransport={clear:async()=>{events.push('attachment-clear');},upload:async(_s,_sid,value)=>{ctx=value;value.uploadStarted=true;events.push('attach');},verify:async()=>{events.push('attachment-verify');}};
+  worker.contextTransport={state:async()=>({files:['index.tsx']}),clear:async()=>assert.fail('no legacy context to clear'),upload:async()=>assert.fail('new requests must not upload project files')};
+  worker.attachmentTransport={clear:async(_s,_sid,options)=>{events.push('attachment-clear');if(options&&cleanupFails)throw new Error('cleanup failed');},upload:async(_s,_sid,value)=>{ctx=value;value.uploadStarted=true;events.push('attach');},verify:async()=>{events.push('attachment-verify');}};
   return {events,request,worker,get context(){return ctx;},get composer(){return composer;},run:()=>worker.generateOne(input.alias,input.body,request)};
 }
 
@@ -28,7 +28,7 @@ const previousRefusal={ready:true,count:1,running:false,error:googlePolicyRefusa
 test('a previous chat policy error is cleared before a distinct new request uploads files',async()=>{
   const f=fixture({initialState:previousRefusal,context:true});
   assert.equal(await f.run(),'VERIFIED');
-  assert.ok(f.events.indexOf('Start new chat')<f.events.indexOf('upload'));
+  assert.ok(f.events.indexOf('Start new chat')<f.events.indexOf('attach'));
   assert.equal(f.events.filter(x=>x==='Send').length,1);
 });
 test('preflight still blocks global page errors and previous quota errors without sending',async()=>{
@@ -69,11 +69,11 @@ test('an upstream timeout remains the primary error when subsequent cleanup also
 test('a pre-generation identity failure is logged before bounded cleanup and releases with its original error',async t=>{
   t.mock.timers.enable({apis:['Date'],now:1000});
   const f=fixture({context:true});f.request.deadline=Infinity;const seen=[];
-  f.worker.context=async(_send,_sid,phase)=>{if(phase==='before_new_chat')throw Object.assign(new Error('identity check failed'),{status:503,code:'identity_control_missing'});};
+  f.worker.context=async(_send,_sid,phase)=>{if(phase==='after_attachment_upload')throw Object.assign(new Error('identity check failed'),{status:503,code:'identity_control_missing'});};
   f.worker.log=async(event,extra)=>seen.push({event,...extra});
-  const transport=new BuildFileContext(f.worker,{timeoutMs:10}),clear=f.worker.contextTransport.clear;
-  f.worker.contextTransport.timeoutMs=10;let cleanupPolls=0;
-  f.worker.contextTransport.clear=async(send,sid,options)=>{
+  const transport=new BuildFileContext(f.worker,{timeoutMs:10}),clear=f.worker.attachmentTransport.clear;
+  f.worker.attachmentTransport.timeoutMs=10;let cleanupPolls=0;
+  f.worker.attachmentTransport.clear=async(send,sid,options)=>{
     if(!options)return clear(send,sid,options);
     return transport.wait(send,sid,async()=>{if(++cleanupPolls>1)throw new Error('unbounded_failure_cleanup');t.mock.timers.tick(20);return false;},'FAILED_CLEANUP',{cancel:false});
   };
@@ -91,8 +91,8 @@ test('direct worker selects model then thinking, verifies actual RPC, and resets
 test('actual model/level mismatch or absent metadata fail closed',async()=>{
   for(const options of [{wireLevel:'high'},{wireModel:'gemini-3.8-flash'},{wire:false}])await assert.rejects(fixture(options).run(),e=>e.status===502&&e.rotationReason==='thinking_configuration_failed');
 });
-test('ST project history uploads before fresh chat and cleans before successful return',async()=>{
-  const f=fixture({context:true});assert.equal(await f.run(),'VERIFIED');assert.ok(f.events.indexOf('upload')<f.events.indexOf('New chat'));assert.equal(f.events.at(-1),'clear');
+test('ST attaches context after fresh chat and verifies before sending',async()=>{
+  const f=fixture({context:true});assert.equal(await f.run(),'VERIFIED');assert.ok(f.events.indexOf('Start new chat')<f.events.indexOf('attach'));assert.ok(f.events.indexOf('attach')<f.events.indexOf('attachment-verify'));assert.ok(f.events.indexOf('attachment-verify')<f.events.indexOf('Send'));assert.equal(f.events.at(-1),'attachment-clear');
 });
 test('cleanup failure is reported, but Google refusal text is returned unchanged',async()=>{
   await assert.rejects(fixture({context:true,cleanupFails:true}).run(),e=>e.code==='context_cleanup_failed');
@@ -107,8 +107,8 @@ test('ST worker always uploads background and sends preset directly, even under 
   const f=fixture({context:true,threshold:1000000,apiBody:{model:'build-st/gemini-4-argon-low',messages:[encodeEnvelope(segments,'normal',30)]}});
   assert.equal(await f.run(),'VERIFIED');assert.equal(f.request.contextMode,'sillytavern_split');
   assert.ok(f.composer.includes('PRESET_ONLY'));assert.ok(!f.composer.includes('HISTORY_ONLY'));
-  assert.ok(f.context.files[1].text.includes('HISTORY_ONLY'));assert.ok(!f.context.files.some(x=>x.text.includes('PRESET_ONLY')));
-  assert.ok(f.events.indexOf('upload')<f.events.indexOf('Send'));assert.equal(f.events.at(-1),'clear');
+  assert.ok(f.context.files[0].text.includes('HISTORY_ONLY'));assert.ok(!f.context.files.some(x=>x.text.includes('PRESET_ONLY')));
+  assert.ok(f.events.indexOf('attach')<f.events.indexOf('Send'));assert.equal(f.events.at(-1),'attachment-clear');
 });
 
 
@@ -129,9 +129,9 @@ test('ST answers without receipts, unfamiliar receipts, and refusals are not dis
  }
 });
 
-test('ordinary attachment mode touches the project tree only to recover existing legacy context files',async()=>{
- for(const legacy of [false,true]){
-  const f=fixture();let clears=0;
+test('both attachment modes touch the project tree only to recover existing legacy context files',async()=>{
+ for(const context of [false,true])for(const legacy of [false,true]){
+  const f=fixture({context});let clears=0;
   f.worker.contextTransport={state:async()=>({files:legacy?['__bridge_ctx_0123456789abcdef01234567_history.jsonl','index.tsx']:['index.tsx'],dirty:true}),clear:async()=>{clears++;},upload:async()=>assert.fail('ordinary models must not upload project files')};
   assert.equal(await f.run(),'VERIFIED');assert.equal(clears,legacy?1:0);
  }
