@@ -25,19 +25,21 @@ export function parseCompletion(body) {
     return {alias,responseModel:body.model,resolved,stream:body.stream===true,body:{sillytavern:context,contents:[{role:'user',parts:[{text:''}]}],...(max?{generationConfig:{maxOutputTokens:max}}:{})}};
   }
   if(!Array.isArray(body.messages)||!body.messages.length||body.messages.length>10000)throw error('messages 必须为非空数组，最多 10000 条');
-  const contents=[],system=[];let sawConversation=false;
+  const contents=[];let lastConversationRole;
   for(const m of body.messages) {
     if(!m||!['system','developer','user','assistant'].includes(m.role)||m.tool_calls||m.function_call||m.name)throw error('仅支持 system/developer/user/assistant 文本消息');
     let content=m.content;
     if(Array.isArray(content))content=content.map(p=>{if(!p||p.type!=='text'||typeof p.text!=='string'||Object.keys(p).some(k=>!['type','text'].includes(k)))throw error('仅支持文本 content');return p.text;}).join('\n');
     if(typeof content!=='string')throw error('消息 content 必须为文本');
-    if(['system','developer'].includes(m.role)) {if(sawConversation)throw error('系统指令必须放在会话消息之前');system.push(content);}
-    else {sawConversation=true;contents.push({role:m.role==='assistant'?'model':'user',parts:[{text:content}]});}
+    // This transcript becomes a chat attachment, not a Gemini generateContent
+    // request. Preserve every role and its position, including late instructions.
+    contents.push({role:m.role,parts:[{text:content}]});
+    if(m.role==='user'||m.role==='assistant')lastConversationRole=m.role;
   }
-  if(!contents.length||contents.at(-1).role!=='user')throw error('最后一条会话消息必须为 user');
+  if(lastConversationRole!=='user')throw error('最后一条会话消息必须为 user');
   const max=body.max_completion_tokens??body.max_tokens;
   if(max!==undefined&&(!Number.isSafeInteger(max)||max<1||max>1000000))throw error('输出 token 数必须为正整数');
-  return {alias,resolved,stream:body.stream===true,body:{contents,systemInstruction:{parts:[{text:system.join('\n\n')}]},...(max?{generationConfig:{maxOutputTokens:max}}:{})}};
+  return {alias,resolved,stream:body.stream===true,body:{contents,...(max?{generationConfig:{maxOutputTokens:max}}:{})}};
 }
 export function completion(model,text) {return {id:'chatcmpl-'+randomUUID(),object:'chat.completion',created:Math.floor(Date.now()/1000),model,choices:[{index:0,message:{role:'assistant',content:text},finish_reason:'stop'}],usage:null};}
 export function bufferedSSE(result) {

@@ -5,6 +5,22 @@ import {parseCompletion} from '../src/protocol.mjs';
 import {encodeEnvelope} from '../extensions/build-standalone-adapter/transport.js';
 import {error} from '../src/errors.mjs';
 import {unwrapFileReply} from '../src/build-file-context.mjs';
+import {buildInput} from '../src/build-chat.mjs';
+import {makeAttachmentContext} from '../src/build-attachment-context.mjs';
+
+test('ordinary HTTP requests preserve interleaved and trailing instructions in attachments for JSON and SSE',async t=>{
+ const received=[];const f=await fixture(t,{executor:{async execute(input){received.push(JSON.parse(makeAttachmentContext(buildInput(input.body)).files[0].text));return {text:'ORDER_OK'};}}});
+ const messages=[{role:'system',content:'  initial\r\n😀  '},{role:'user',content:'first question'},{role:'assistant',content:'first answer'},{role:'system',content:'middle instruction'},{role:'developer',content:[{type:'text',text:'developer A'},{type:'text',text:'developer B'}]},{role:'user',content:'final question'}];
+ for(const model of [body.model,'build/'+body.model])for(const trailing of [false,true])for(const stream of [false,true]){
+  const input={model,stream,messages:[...messages,...(trailing?[{role:'system',content:'tail system'},{role:'developer',content:'tail developer'}]:[])]},original=structuredClone(input);
+  const response=await f.call('/v1/chat/completions',input),text=await response.text();assert.equal(response.status,200,text);assert.match(text,/ORDER_OK/);
+  assert.deepEqual(received.at(-1),{system:'',messages:input.messages.map(m=>({...m,content:Array.isArray(m.content)?m.content.map(p=>p.text).join('\n'):m.content}))});
+  assert.deepEqual(input,original);if(stream)assert.ok(text.endsWith('data: [DONE]\n\n'));
+ }
+ const calls=received.length;
+ for(const invalid of [[{role:'system',content:'only instructions'}],[...messages,{role:'assistant',content:'answer'},{role:'system',content:'tail'}]])assert.equal((await f.call('/v1/chat/completions',{...body,messages:invalid})).status,400);
+ assert.equal(received.length,calls);
+});
 
 test('missing receipts and Google refusal text retain the entire answer in JSON and SSE',async t=>{
  let answer;const marker='[[BUILD_CONTEXT:current:footer]]';
@@ -59,7 +75,7 @@ test('HTTP API authenticates and runs direct executor end to end',async t=>{
   const response=await f.call('/v1/chat/completions',body),value=await response.json();
   assert.equal(response.status,200);assert.equal(value.choices[0].message.content,'DIRECT_OK');assert.equal(value.usage,null);
   assert.equal(seen[0].input.resolved.model,'gemini-4-argon');assert.equal(seen[0].input.resolved.thinkingLevel,'low');
-  assert.equal(seen[0].input.body.systemInstruction.parts[0].text,'system');assert.ok(seen[0].ctx.signal instanceof AbortSignal);
+  assert.deepEqual(seen[0].input.body.contents[0],{role:'system',parts:[{text:'system'}]});assert.ok(seen[0].ctx.signal instanceof AbortSignal);
   assert.equal((await f.call('/admin/state')).status,401);assert.equal((await f.call('/admin/state',undefined,{key:f.credentials.adminKey})).status,200);
 });
 test('SSE is explicitly buffered, one full content event, stop and DONE',async t=>{

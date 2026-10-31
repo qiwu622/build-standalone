@@ -43,6 +43,6 @@ export class DemoExecutor {
       const timer=setTimeout(done,20),abort=()=>{clearTimeout(timer);reject(signal.reason||error('已取消',499));};
       signal.addEventListener('abort',abort,{once:true});
     });
-    return {text:`[DEMO / 未调用 Google] ${input.resolved.model} · ${input.resolved.thinkingLevel}\n${input.body.contents.at(-1).parts.map(p=>p.text).join('\n')}`,contextMode:'demo',thinkingLevel:input.resolved.thinkingLevel};
+    return {text:`[DEMO / 未调用 Google] ${input.resolved.model} · ${input.resolved.thinkingLevel}\n${input.body.contents.findLast(m=>m.role==='user').parts.map(p=>p.text).join('\n')}`,contextMode:'demo',thinkingLevel:input.resolved.thinkingLevel};
   }
 }

@@ -116,7 +116,7 @@ test('ordinary models always attach the exact context after new chat, even for s
  for(const content of ['short request','long 😀 history\n'.repeat(40000)]){
   const f=fixture({apiBody:{model:'gemini-4-argon-low',messages:[{role:'system',content:'SYSTEM_ONLY'},{role:'user',content}]}});
   assert.equal(await f.run(),'VERIFIED');assert.equal(f.request.contextMode,'chat_attachment');
-  const payload=JSON.parse(f.context.files[0].text);assert.equal(payload.system,'SYSTEM_ONLY');assert.equal(payload.messages[0].content,content);
+  const payload=JSON.parse(f.context.files[0].text);assert.deepEqual(payload,{system:'',messages:[{role:'system',content:'SYSTEM_ONLY'},{role:'user',content}]});
   assert.ok(!f.composer.includes(content));assert.ok(!f.events.includes('upload'));assert.ok(!f.events.includes('clear'));
   assert.ok(f.events.indexOf('Start new chat')<f.events.indexOf('attach'));assert.ok(f.events.indexOf('attach')<f.events.indexOf('Send'));
   assert.ok(f.events.indexOf('attachment-verify')<f.events.indexOf('Send'));
