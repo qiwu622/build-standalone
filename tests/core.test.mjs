@@ -88,14 +88,15 @@ test('content refusal, configuration failures and cancellation never rotate',asy
     await assert.rejects(pool.run('gemini-4-argon',{},async()=>{calls++;throw failure;}));assert.equal(calls,1);
   }
 });
-test('Unicode JSONL exact roundtrip, request-specific footers, missing footer refusal distinction',()=>{
+test('Unicode JSONL exact roundtrip and optional receipt forwarding',()=>{
   const content=('甲😀\r\n\t"\\  ').repeat(10000),input={system:content,messages:[{role:'user',content},{role:'model',content:' previous '},{role:'user',content:'last'}]};
   const ctx=makeFileContext(input),other=makeFileContext(input),[system,history]=ctx.files.map(f=>f.text.trim().split('\n').map(JSON.parse));
   assert.equal(system.filter(x=>'text'in x).map(x=>x.text).join(''),content);
   for(let i=0;i<input.messages.length;i++)assert.equal(history.filter(x=>x.turn===i+1).map(x=>x.text).join(''),input.messages[i].content);
   assert.ok(!ctx.prompt.includes(ctx.marker));assert.equal(unwrapFileReply(ctx.marker+'\n  answer ',ctx),'  answer ');
-  assert.throws(()=>unwrapFileReply(other.marker+'\nanswer',ctx));assert.throws(()=>unwrapFileReply('CONTEXT_INCOMPLETE',ctx));
-  assert.throws(()=>unwrapFileReply('I cannot comply with this content policy request.',ctx),e=>e.status===422);
+  assert.equal(unwrapFileReply(other.marker+'\nanswer',ctx),other.marker+'\nanswer');assert.equal(unwrapFileReply('CONTEXT_INCOMPLETE',ctx),'CONTEXT_INCOMPLETE');
+  assert.equal(unwrapFileReply('I cannot comply with this content policy request.',ctx),'I cannot comply with this content policy request.');
+  assert.equal(unwrapFileReply(ctx.marker+'\r\n  x\n',ctx),'  x\n');assert.equal(unwrapFileReply(ctx.marker,ctx),ctx.marker);assert.equal(unwrapFileReply('\n'+ctx.marker+'\nanswer',ctx),'\n'+ctx.marker+'\nanswer');
   assert.equal(textChunks('a😀b😀',2).join(''),'a😀b😀');assert.throws(()=>makeFileContext({system:'x'.repeat(9*1024*1024),messages:[]}),e=>e.status===413);
 });
 test('context upload removes local private text even when browser fails',async t=>{

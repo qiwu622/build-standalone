@@ -6,19 +6,20 @@ import {parseCompletion} from '../src/protocol.mjs';
 import {encodeEnvelope} from '../extensions/build-standalone-adapter/transport.js';
 import {BuildFileContext} from '../src/build-file-context.mjs';
 
-function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUser='0',wire=true,context=false,cleanupFails=false,text='VERIFIED',apiBody,threshold,initialState}={}) {
-  const listeners=new Set(),events=[],request={};const input=parseCompletion(apiBody||{...body,model:'gemini-4-argon-'+level});
+function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUser='0',wire=true,context=false,cleanupFails=false,text='VERIFIED',apiBody,threshold,initialState,withMarker=true}={}) {
+  const listeners=new Set(),events=[],request={};const testSegments=[{message:0,part:0,role:'system',source:'main',placement:'inline',text:'PRESET'}, {message:1,part:0,role:'user',source:'chatHistory-1',placement:'file',text:'HISTORY'}];const input=parseCompletion(apiBody||(context?{model:'build-st/gemini-4-argon-'+level,messages:[encodeEnvelope(testSegments,'normal',30)]}:{...body,model:'gemini-4-argon-'+level}));
   const send=async()=>({});send.onEvent=fn=>{listeners.add(fn);return()=>listeners.delete(fn);};
   const worker=new BuildChatWorker({cdp:fn=>fn(send),responseSettleMs:1,pollInterval:2,contextThreshold:threshold??(context?1:96*1024)});
   worker.current=request;worker.context=async()=>{};if(!initialState)worker.wait=async()=>({ready:true,count:0,running:false});
   let page=initialState,submitted=false;
   worker.click=async(_send,_sid,label)=>{events.push(label);if(initialState&&label==='Start new chat')page={ready:true,count:0,running:false,error:'',pageError:'',responseError:''};};worker.configureThinking=async(_send,_sid,value)=>events.push('thinking:'+value);
   let ctx,composer;
-  worker.evaluate=async(_send,_sid,script)=>script.includes('using your Google AI subscription')?true:script.includes('const responses')?(page&&!submitted?page:{ready:true,count:1,running:false,text:ctx?ctx.marker+'\n'+text:text,header:'Gemini 4 Argon'}):null;
+  worker.evaluate=async(_send,_sid,script)=>script.includes('using your Google AI subscription')?true:script.includes('const responses')?(page&&!submitted?page:{ready:true,count:1,running:false,text:ctx?.marker&&withMarker?ctx.marker+'\n'+text:text,header:'Gemini 4 Argon'}):null;
   worker.fillAndSend=async(_send,_sid,prompt)=>{composer=prompt;events.push('Send');submitted=true;if(!wire)return;const data=Array(19).fill(null);data[7]='models/'+wireModel;data[18]=[null,null,null,{low:1,medium:2,high:3}[wireLevel]];
     for(const fn of listeners)fn({sessionId:'page',method:'Network.requestWillBeSent',params:{requestId:'fixture',request:{method:'POST',url:'https://alkalimakersuite-pa.clients6.google.com/CodeAssistantOffline',headers:{'x-goog-authuser':wireUser},postData:JSON.stringify(data)}}});
   };
   if(context)worker.contextTransport={clear:async(_s,_sid,options)=>{events.push('clear');if(options&&cleanupFails)throw new Error('cleanup failed');},upload:async(_s,_sid,value)=>{ctx=value;value.uploadStarted=true;events.push('upload');}};
+  worker.attachmentTransport={clear:async()=>{events.push('attachment-clear');},upload:async(_s,_sid,value)=>{ctx=value;value.uploadStarted=true;events.push('attach');},verify:async()=>{events.push('attachment-verify');}};
   return {events,request,worker,get context(){return ctx;},get composer(){return composer;},run:()=>worker.generateOne(input.alias,input.body,request)};
 }
 
@@ -90,12 +91,12 @@ test('direct worker selects model then thinking, verifies actual RPC, and resets
 test('actual model/level mismatch or absent metadata fail closed',async()=>{
   for(const options of [{wireLevel:'high'},{wireModel:'gemini-3.8-flash'},{wire:false}])await assert.rejects(fixture(options).run(),e=>e.status===502&&e.rotationReason==='thinking_configuration_failed');
 });
-test('long history uploads before fresh chat and cleans before successful return',async()=>{
+test('ST project history uploads before fresh chat and cleans before successful return',async()=>{
   const f=fixture({context:true});assert.equal(await f.run(),'VERIFIED');assert.ok(f.events.indexOf('upload')<f.events.indexOf('New chat'));assert.equal(f.events.at(-1),'clear');
 });
-test('cleanup failure and explicit Google content refusal are never successful',async()=>{
+test('cleanup failure is reported, but Google refusal text is returned unchanged',async()=>{
   await assert.rejects(fixture({context:true,cleanupFails:true}).run(),e=>e.code==='context_cleanup_failed');
-  await assert.rejects(fixture({text:'I cannot comply with this content policy request.'}).run(),e=>e.status===422);
+  assert.equal(await fixture({text:'I cannot comply with this content policy request.'}).run(),'I cannot comply with this content policy request.');
 });
 test('actual Google RPC with a different account index is rejected',async()=>{
   await assert.rejects(fixture({wireUser:'1'}).run(),e=>e.code==='account_mismatch');
@@ -108,4 +109,30 @@ test('ST worker always uploads background and sends preset directly, even under 
   assert.ok(f.composer.includes('PRESET_ONLY'));assert.ok(!f.composer.includes('HISTORY_ONLY'));
   assert.ok(f.context.files[1].text.includes('HISTORY_ONLY'));assert.ok(!f.context.files.some(x=>x.text.includes('PRESET_ONLY')));
   assert.ok(f.events.indexOf('upload')<f.events.indexOf('Send'));assert.equal(f.events.at(-1),'clear');
+});
+
+
+test('ordinary models always attach the exact context after new chat, even for short inputs',async()=>{
+ for(const content of ['short request','long 😀 history\n'.repeat(40000)]){
+  const f=fixture({apiBody:{model:'gemini-4-argon-low',messages:[{role:'system',content:'SYSTEM_ONLY'},{role:'user',content}]}});
+  assert.equal(await f.run(),'VERIFIED');assert.equal(f.request.contextMode,'chat_attachment');
+  const payload=JSON.parse(f.context.files[0].text);assert.equal(payload.system,'SYSTEM_ONLY');assert.equal(payload.messages[0].content,content);
+  assert.ok(!f.composer.includes(content));assert.ok(!f.events.includes('upload'));assert.ok(!f.events.includes('clear'));
+  assert.ok(f.events.indexOf('Start new chat')<f.events.indexOf('attach'));assert.ok(f.events.indexOf('attach')<f.events.indexOf('Send'));
+  assert.ok(f.events.indexOf('attachment-verify')<f.events.indexOf('Send'));
+  assert.equal(f.events.at(-1),'attachment-clear');assert.equal(f.events.filter(x=>x==='Send').length,1);
+ }
+});
+test('ST answers without receipts, unfamiliar receipts, and refusals are not discarded or retried',async()=>{
+ for(const text of ['  ## 正文\n原样保留。  ','[[BUILD_CONTEXT:other:request]]\nreply','CONTEXT_INCOMPLETE','I cannot comply with this content policy request.']){
+  const f=fixture({context:true,withMarker:false,text});assert.equal(await f.run(),text);assert.equal(f.events.filter(x=>x==='Send').length,1);
+ }
+});
+
+test('ordinary attachment mode touches the project tree only to recover existing legacy context files',async()=>{
+ for(const legacy of [false,true]){
+  const f=fixture();let clears=0;
+  f.worker.contextTransport={state:async()=>({files:legacy?['__bridge_ctx_0123456789abcdef01234567_history.jsonl','index.tsx']:['index.tsx'],dirty:true}),clear:async()=>{clears++;},upload:async()=>assert.fail('ordinary models must not upload project files')};
+  assert.equal(await f.run(),'VERIFIED');assert.equal(clears,legacy?1:0);
+ }
 });

@@ -4,6 +4,20 @@ import {fixture,body} from './helpers.mjs';
 import {parseCompletion} from '../src/protocol.mjs';
 import {encodeEnvelope} from '../extensions/build-standalone-adapter/transport.js';
 import {error} from '../src/errors.mjs';
+import {unwrapFileReply} from '../src/build-file-context.mjs';
+
+test('missing receipts and Google refusal text retain the entire answer in JSON and SSE',async t=>{
+ let answer;const marker='[[BUILD_CONTEXT:current:footer]]';
+ const f=await fixture(t,{executor:{async execute(){return {text:unwrapFileReply(answer,{marker})};}}});
+ for(const text of ['  ## 完整正文\n第一行\n第二行 😀  ','I cannot comply with this content policy request.','[[BUILD_CONTEXT:other:footer]]\noriginal answer',marker+'\r\n  answer  ']){
+  answer=text;const expected=text.startsWith(marker)?'  answer  ':text;
+  for(const stream of [false,true]){
+   const response=await f.call('/v1/chat/completions',{...body,stream});assert.equal(response.status,200);
+   if(!stream)assert.equal((await response.json()).choices[0].message.content,expected);
+   else {const frames=(await response.text()).split('\n\n').filter(x=>x.startsWith('data: ')&&x!=='data: [DONE]');assert.equal(frames.map(x=>JSON.parse(x.slice(6)).choices[0].delta?.content||'').join(''),expected);}
+  }
+ }
+});
 
 test('zero timeouts allow waiting and executing until the caller cancels',async t=>{
   let entered=0,release;

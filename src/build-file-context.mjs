@@ -72,26 +72,17 @@ function makeSillyTavernContext(input,nonce){
  if(bytes>maxFileContextBytes)throw new AppError('Build 文件上下文超过 8 MiB，请缩短历史',413,'context_too_large');
  const marker=`[[BUILD_CONTEXT:${ends[0]}:${ends[1]}]]`;
  const action={continue:'Continue the final assistant message.',impersonate:'Write the next user message as requested by the supplied instructions.',quiet:'Answer the supplied quiet task.'}[input.sillytavern.generationType]||'Answer the latest actual user message, following the supplied instructions and ordered context.';
- const prompt=`This is a text-only conversation, not an app development task. Read all of ${systemName} (${layout.length} lines) and ${historyName} (${history.length} lines) in batches of at most 100 lines. Reconstruct the ordered conversation by substituting the file segments into the outline below. Preserve roles, names, order, and exact text. Preset instructions are supplied directly INLINE below; they are not stored in either file. Do not edit project files. ${action} First output [[BUILD_CONTEXT:<layout end verification>:<history end verification>]] using the two values read from the file footers, then a newline and only the answer. If any range cannot be read, reply CONTEXT_INCOMPLETE.\n\n${outline.join('\n\n')}`+(input.requestedMaxOutputTokens?`\nRequested output limit: ${input.requestedMaxOutputTokens} tokens.`:'');
+ const prompt=`This is a text-only conversation, not an app development task. Read all of ${systemName} (${layout.length} lines) and ${historyName} (${history.length} lines) in batches of at most 100 lines. Reconstruct the ordered conversation by substituting the file segments into the outline below. Preserve roles, names, order, and exact text. Preset instructions are supplied directly INLINE below; they are not stored in either file. Do not edit project files. ${action} Return the complete answer directly, without a receipt or verification code. If any range cannot be read, reply CONTEXT_INCOMPLETE.\n\n${outline.join('\n\n')}`+(input.requestedMaxOutputTokens?`\nRequested output limit: ${input.requestedMaxOutputTokens} tokens.`:'');
  if(Buffer.byteLength(prompt)>1024*1024)throw new AppError('Build 输入框内容超过 1 MiB 安全大小限制；未截断预设',413,'inline_too_large');
  return {nonce,files,bytes,prompt,marker,lines:[layout.length,history.length],fingerprints:files.map(f=>createHash('sha256').update(f.text).digest('hex')),mode:'sillytavern_split'};
 }
 
 export function unwrapFileReply(text,context){
- const start=text.startsWith(context.marker+'\r\n')?context.marker.length+2:text.startsWith(context.marker+'\n')?context.marker.length+1:-1;
- if(start<0){
-  // A Google policy refusal does not follow our file marker protocol. Report
-  // that outcome accurately without retrying it or bypassing file validation.
-  const beginning=text.trimStart().slice(0,1200);
-  const declines=/^(?:I (?:cannot|can't|am unable to)|I'm (?:sorry|unable to)|Sorry[,，]|抱歉|对不起|我(?:无法|不能))/i.test(beginning);
-  if(declines&&/safety polic|content polic|sexually explicit|adult erotica|安全政策|内容政策|露骨.{0,8}(?:色情|性内容)/i.test(beginning)){
-   throw Object.assign(new Error('Google 已明确拒绝生成本次内容（上游内容安全策略）；不是网络故障，也未完成上下文文件校验'),{status:422,rotationReason:'content_refused'});
-  }
-  throw fail('Build 未返回本次上下文文件的校验标记，已阻止返回可能缺失历史的回复');
- }
- const answer=text.slice(start);
- if(!answer.trim())throw fail('Build 读取上下文后未返回正文');
- return answer;
+ // A receipt is optional. Missing or unfamiliar receipts must never discard
+ // Google's answer (including a refusal). Strip only our exact leading token.
+ if(!context?.marker||!text.startsWith(context.marker))return text;
+ const answer=text.slice(context.marker.length).replace(/^\r?\n/,'');
+ return answer.trim()?answer:text;
 }
 
 export class BuildFileContext {

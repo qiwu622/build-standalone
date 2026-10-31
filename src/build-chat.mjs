@@ -1,5 +1,6 @@
 // Direct Build executor. Adapted from the user's Build business module.
-import {makeFileContext,unwrapFileReply,fileContextThreshold} from './build-file-context.mjs';
+import {makeFileContext,unwrapFileReply,managedContextName} from './build-file-context.mjs';
+import {makeAttachmentContext,BuildAttachmentContext} from './build-attachment-context.mjs';
 import {buildModels,resolveBuildModel,configureBuildThinking,readBuildThinking} from './build-thinking.mjs';
 import {AppError,isContentRefusal, safeFailure} from './errors.mjs';
 import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
@@ -94,14 +95,14 @@ export const snapshotScript = `(() => {
 })()`;
 
 export class BuildChatWorker {
-    constructor({ cdp, diagnostics, pool, responseSettleMs=1500, pollInterval=1000, contextTransport, contextThreshold=fileContextThreshold }) {
+    constructor({ cdp, diagnostics, pool, responseSettleMs=1500, pollInterval=1000, contextTransport, attachmentTransport }) {
         this.cdp = cdp; this.current = null;
         this.pool=pool;
         this.responseSettleMs=responseSettleMs;this.pollInterval=pollInterval;
 
         this.diagnostics=diagnostics;
         this.contextTransport=contextTransport||null;
-        this.contextThreshold=contextThreshold;
+        this.attachmentTransport=attachmentTransport||new BuildAttachmentContext(this);
     }
     async log(event,extra={},request=this.current){
         try{await this.diagnostics?.record({event,requestId:request?.headers?.['x-gemini-request-id']||request?.request_id,transportRequestId:request?.request_id,model:request?.model,accountId:this.accountId,stage:request?.stage,...extra});}catch{console.error('Build diagnostics write failed');}
@@ -172,11 +173,12 @@ export class BuildChatWorker {
         request.thinkingLevel=resolved.thinkingLevel;
         request.upstreamModel=resolved.model;
         request.googleThinkingLevel=null;
-        let prompt = buildPrompt(body);
         if(body.sillytavern&&!this.contextTransport)throw failure('酒馆分流需要项目文件传输器');
-        const context=this.contextTransport&&(body.sillytavern||Buffer.byteLength(prompt)>=this.contextThreshold)?makeFileContext(buildInput(body)):null;
-        if(context)prompt=context.prompt;
-        request.contextMode=body.sillytavern?'sillytavern_split':context?'project_files':'inline';
+        const projectContext=!!body.sillytavern;
+        const context=projectContext?makeFileContext(buildInput(body)):makeAttachmentContext(buildInput(body));
+        const transport=projectContext?this.contextTransport:this.attachmentTransport;
+        const prompt=context.prompt;
+        request.contextMode=projectContext?'sillytavern_split':'chat_attachment';
         return this.cdp(async send => {
             request.stage='browser_session';this.aborted(request);
             const sid = await this.session(send);
@@ -228,7 +230,13 @@ export class BuildChatWorker {
                 state=await this.wait(send,sid,s=>s.ready&&!s.running,15000);
             }
             await this.context(send,sid,'before_file_operations',request);
-            if(this.contextTransport){
+            // Recover only actual legacy bridge files. Ordinary attachment
+            // requests do not otherwise open, save, or edit the project tree.
+            if(!projectContext&&this.contextTransport?.state){
+                const legacy=await this.contextTransport.state(send,sid);
+                if(legacy.files.some(name=>managedContextName.test(name)))await this.contextTransport.clear(send,sid);
+            }
+            if(projectContext){
                 request.stage='context_cleanup';
                 const cleared=await this.contextTransport.clear(send,sid);
                 if(cleared)await this.log('context_recovered',{reason:JSON.stringify({files:cleared})},request);
@@ -247,6 +255,14 @@ export class BuildChatWorker {
             await this.click(send, sid, 'Start new chat');
             await this.wait(send, sid, s => s.ready && s.count === 0);
             await this.context(send,sid,'after_new_chat',request);
+            if(!projectContext){
+                request.stage='attachment_upload';await this.log('request_stage',{},request);
+                await transport.clear(send,sid);
+                const uploadStarted=Date.now();await transport.upload(send,sid,context);
+                request.contextUploadMs=Date.now()-uploadStarted;
+                await this.log('context_uploaded',{durationMs:request.contextUploadMs,reason:JSON.stringify({mode:'chat_attachment',bytes:context.bytes,files:context.files.map(f=>f.name)})},request);
+                await this.context(send,sid,'after_attachment_upload',request);
+            }
             // Select the real UI model and leave the Usage setting on the Google AI plan.
             request.stage='subscription_and_model';await this.click(send, sid, '设置');
             const usesPlan = await this.evaluate(send, sid, `/using your Google AI subscription for requests in chat/.test(document.body.innerText)`);
@@ -262,6 +278,7 @@ export class BuildChatWorker {
             await this.configureThinking(send,sid,resolved.thinkingLevel);
             await this.log('thinking_configured',{reason:JSON.stringify({model:resolved.model,thinkingLevel:resolved.thinkingLevel})},request);
             await this.click(send, sid, '关闭面板');
+            if(!projectContext)await transport.verify(send,sid,context);
             request.stage='send_prompt';await this.log('request_stage',{},request);const responseStarted=Date.now();await this.fillAndSend(send, sid, prompt, false, request);
             request.stage='wait_response';await this.log('request_stage',{},request);
             let observed = false, settledText, settledHeader, settledAt=0;
@@ -295,10 +312,9 @@ export class BuildChatWorker {
                             if (!next.text) throw failure('Build 未返回文本；请检查 Google 登录或额度',faults.at(-1)||502,'google_empty_response');
                             if (!next.header.includes(resolved.displayName)) throw failure('Build 返回的模型与请求不符');
                             this.verifyThinking(request);
-                            if(isContentRefusal(next.text))throw safeFailure('content_refused');
-                            const answer=context?unwrapFileReply(next.text,context):next.text;
+                            const answer=unwrapFileReply(next.text,context);
                             request.responseMs=Date.now()-responseStarted;
-                            if(context)await this.log('context_reply_verified',{durationMs:request.responseMs,reason:'current_request_file_end_markers_matched'},request);
+                            await this.log('context_reply_received',{durationMs:request.responseMs,reason:context.marker&&next.text.startsWith(context.marker)?'optional_marker_present':'reply_forwarded_without_marker_requirement'},request);
                             chunk?.(answer);
                             return answer;
                         }
@@ -310,7 +326,7 @@ export class BuildChatWorker {
                 primaryError=e;
                 // Generation remains unlimited. Once it has already failed,
                 // cleanup must not hide that failure or hold the queue forever.
-                request.cleanupDeadline=Date.now()+(this.contextTransport?.timeoutMs??45000);
+                request.cleanupDeadline=Date.now()+(transport?.timeoutMs??45000);
                 await this.log('execution_error',{status:e.status,code:e.code||e.rotationReason||'build_execution_failed',message:e instanceof AppError?e.message:undefined,submitted:request.submitted===true},request);
                 throw e;
             } finally {
@@ -320,7 +336,7 @@ export class BuildChatWorker {
                 if(context?.uploadStarted&&stoppedCleanly){
                     const cleanupStarted=Date.now();
                     try{
-                        const removed=await this.contextTransport.clear(send,sid,{cancel:false,allowDirty:true});
+                        const removed=await transport.clear(send,sid,{cancel:false,allowDirty:true});
                         request.contextCleanupMs=Date.now()-cleanupStarted;
                         await this.log('context_cleared',{durationMs:request.contextCleanupMs,reason:JSON.stringify({files:removed})},request);
                     }catch(error){await this.log('context_cleanup_failed',{code:'context_cleanup_failed',durationMs:Date.now()-cleanupStarted},request);if(primaryError)primaryError.cleanupCode='context_cleanup_failed';else throw safeFailure('context_cleanup_failed');}
