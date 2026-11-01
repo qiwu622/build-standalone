@@ -95,7 +95,7 @@ export function createService({config,credentials,executor,store,pool,browsers,l
           return executor.execute(parsed,{signal:controller.signal,requestId,deadline});
         },controller.signal);
         result=await waitResult(task,controller.signal);
-        const output=completion(parsed.responseModel||parsed.alias,result.text);
+        const output=completion(parsed.responseModel||parsed.alias,result.text,parsed.toolContext);
         if(parsed.stream){if(!res.headersSent)res.writeHead(200,{'content-type':'text/event-stream; charset=utf-8'});res.end(bufferedSSE(output));}
         else json(res,200,output);
         return;

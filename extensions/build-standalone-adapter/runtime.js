@@ -26,7 +26,7 @@ const active=()=>settings().enabled&&isBuildConnection({chat_completion_source:o
 const messages={
  preset_not_ready:'尚未读取到本次酒馆预设。请刷新酒馆后发送聊天；“测试连接”请使用普通 gemini 模型。',
  preset_read_failed:'读取本次预设失败，请查看扩展控制台中的错误代码。',
- text_only:'目前仅支持纯文本和单次生成；请关闭工具、图片、JSON schema 与多候选回复。',
+ text_only:'目前支持文本和函数工具；请关闭图片、JSON schema 与多候选回复，工具结果须为文本。',
  custom_body_conflict:'请清空此连接的“自定义请求正文”和“排除正文参数”；扩展需要按请求设置它们。',
  inline_budget_exceeded:'输入框内容估算超过 45000 token。预设没有被截断或移入文件，请缩短预设。',
  token_count_unavailable:'酒馆无法完成 token 估算，已阻止请求。',
@@ -74,14 +74,14 @@ function mount(){
  const host=document.querySelector('#extensions_settings2')||document.querySelector('#extensions_settings');
  if(!host||document.getElementById('build-standalone-adapter-settings'))return;
  const panel=document.createElement('div');panel.dataset.buildAdapterOwner=owner;panel.id='build-standalone-adapter-settings';panel.className='inline-drawer';
- panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>启用酒馆预设分流（默认开启）</label><p>版本 0.5.0（'+(owner==='browser'?'浏览器连接器内置':'兼容酒馆扩展')+'）。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>允许合并系统消息和后期提示词修改；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
+ panel.innerHTML='<div class="inline-drawer-toggle inline-drawer-header"><b>Build 独立版 · 酒馆分流</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><label class="checkbox_label"><input type="checkbox" data-enable>启用酒馆预设分流（默认开启）</label><p>版本 0.6.0（'+(owner==='browser'?'浏览器连接器内置':'兼容酒馆扩展')+'）。支持自定义 OpenAI 或 OpenAI＋反向代理连接中的 <code>build-st/</code> 模型。预设进输入框；历史、世界书和角色资料进项目文件。普通连接不变。</p><p>允许合并系统消息和后期提示词修改；使用自定义连接时需清空自定义正文与排除正文参数。输入框估算上限 45000 token；Build 不支持的温度、Top-P、stop 等采样参数不会转发。思考强度仍由模型后缀决定。</p><p data-status role="status">等待酒馆专用模型请求；此扩展不会自行调用模型。</p></div>';
  host.append(panel);statusElement=panel.querySelector('[data-status]');
  const enabled=panel.querySelector('[data-enable]');enabled.checked=settings().enabled;
  enabled.addEventListener('change',()=>{settings().enabled=enabled.checked;context().saveSettingsDebounced();status('设置已保存。');});
 }
 const ctx=context();
 settings();
-const instance={owner,version:'0.5.0'};
+const instance={owner,version:'0.6.0'};
 globalThis[singleton]=instance;
 ctx.eventSource.on(ctx.eventTypes.GENERATION_STARTED,start);
 ctx.eventSource.makeLast(ctx.eventTypes.CHAT_COMPLETION_SETTINGS_READY,send);

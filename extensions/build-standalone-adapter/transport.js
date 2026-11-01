@@ -67,9 +67,18 @@ export function hookPromptManager(manager,tagger,active){
 }
 
 function textMessage(m){
- if(!m||!['system','developer','user','assistant'].includes(m.role)||typeof m.content!=='string'||m.tool_calls||m.function_call||m.reasoning||m.signature)fail('text_only');
+ const call=m?.role==='assistant'&&(m.tool_calls||m.function_call);
+ if(!m||!['system','developer','user','assistant','tool','function'].includes(m.role)||(typeof m.content!=='string'&&!(call&&m.content===null))||m.reasoning||m.signature)fail('text_only');
  if(m.name!==undefined&&(typeof m.name!=='string'||m.name.length>128))fail('invalid_name');
- return {role:m.role,content:m.content,...(m.name?{name:m.name}:{})};
+ return {role:m.role,content:m.content??'',...(m.name?{name:m.name}:{})};
+}
+export function toolMessageMetadata(chat){
+ return chat.flatMap((m,message)=>{
+  const fields={};
+  for(const field of ['tool_calls','tool_call_id','function_call'])if(m[field]!==undefined)fields[field]=m[field];
+  if(m.content===null)fields.contentNull=true;
+  return Object.keys(fields).length?[{message,...fields}]:[];
+ });
 }
 // Read the enabled presets where ST actually prepares them, then extract their
 // final expanded copies at send time. All other final text is background. No
@@ -81,7 +90,8 @@ export function readPresetSegments(chat,tagger,{latestUserText}={}){
  for(let i=0;i<chat.length;i++){
   const sent=textMessage(chat[i]);
   if(sent.content.includes(tagger.prefix))prepared=true;
-  const split=tagger.split(sent.content,{source:'conversation-context',placement:'file'});
+  const toolHistory=['tool','function'].includes(sent.role)||chat[i].tool_calls||chat[i].function_call;
+  const split=toolHistory?[{source:'tool-history',placement:'file',text:sent.content}]:tagger.split(sent.content,{source:'conversation-context',placement:'file'});
   // An exact unmarked user message can remain in the composer. A user-role
   // preset or World Info fragment must never be promoted as the current turn.
   if(sent.role==='user'&&sent.content===latestUserText&&!sent.content.includes(tagger.prefix))current=i;
@@ -92,26 +102,28 @@ export function readPresetSegments(chat,tagger,{latestUserText}={}){
  if(pieces.length>MAX_SEGMENTS)fail('too_many_segments');
  return pieces;
 }
-export function encodeEnvelope(segments,generationType='normal',inlineTokens=null){
- return {role:'user',content:WIRE_PREFIX+JSON.stringify({version:1,generationType:generationType||'normal',segments,inlineTokens})};
+export function encodeEnvelope(segments,generationType='normal',inlineTokens=null,messageMetadata=[]){
+ return {role:'user',content:WIRE_PREFIX+JSON.stringify({version:messageMetadata.length?2:1,generationType:generationType||'normal',segments,inlineTokens,...(messageMetadata.length?{messageMetadata}:{})})};
 }
 export function errorEnvelope(code){return {role:'user',content:WIRE_PREFIX+JSON.stringify({version:1,error:code})};}
 export const excludedSampling=['temperature','top_p','top_k','top_a','min_p','presence_penalty','frequency_penalty','repetition_penalty','stop','seed','logprobs','top_logprobs','logit_bias','reasoning_effort','user','verbosity'];
 export function prepareOutgoing(data,prepared,{inlineTokens=null,tokenBudget=45000}={}){
  if(!isBuildConnection(data))return null;
- if(data.tools?.length||data.functions?.length||data.json_schema||data.request_images||data.n>1)fail('text_only');
+ if(data.json_schema||data.request_images||data.n>1)fail('text_only');
  if(data.chat_completion_source==='custom'&&(String(data.custom_include_body||'').trim()||String(data.custom_exclude_body||'').trim()))fail('custom_body_conflict');
  if(!prepared)fail('preset_not_ready');
  if(!Number.isFinite(inlineTokens)||inlineTokens<0)fail('token_count_unavailable');
  if(inlineTokens>tokenBudget)fail('inline_budget_exceeded');
- return encodeEnvelope(prepared.segments,prepared.generationType||data.type,Math.ceil(inlineTokens));
+ return encodeEnvelope(prepared.segments,prepared.generationType||data.type,Math.ceil(inlineTokens),toolMessageMetadata(data.messages||[]));
 }
 export function applyOutgoing(data,envelope){
  // Custom-body JSON is also valid YAML, and ST applies it after constructing
  // the OpenAI body. No server plugin or modification of ST core is required.
  data.messages=[envelope];
  if(data.chat_completion_source==='custom'){
-  data.custom_include_body=JSON.stringify({messages:[envelope]});
+  const toolFields={};
+  for(const key of ['tools','tool_choice','parallel_tool_calls','functions','function_call'])if(data[key]!==undefined)toolFields[key]=data[key];
+  data.custom_include_body=JSON.stringify({messages:[envelope],...toolFields});
   data.custom_exclude_body=JSON.stringify(excludedSampling);
   data.custom_prompt_post_processing='';
  }else{

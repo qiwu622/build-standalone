@@ -37,7 +37,8 @@ export function buildAppForAccount(value,authUser='0') {
 }
 
 export function buildInput(body) {
-    if(body.sillytavern)return {system:'',messages:[],sillytavern:body.sillytavern,...(body.generationConfig?.maxOutputTokens?{requestedMaxOutputTokens:body.generationConfig.maxOutputTokens}:{})};
+    if(body.toolTranscript)return {system:'',messages:body.toolTranscript,toolProtocol:body.toolProtocol||'',...(body.generationConfig?.maxOutputTokens?{requestedMaxOutputTokens:body.generationConfig.maxOutputTokens}:{})};
+    if(body.sillytavern)return {system:'',messages:[],sillytavern:body.sillytavern,...(body.toolProtocol?{toolProtocol:body.toolProtocol}:{}),...(body.generationConfig?.maxOutputTokens?{requestedMaxOutputTokens:body.generationConfig.maxOutputTokens}:{})};
     if (!Array.isArray(body.contents) || !body.contents.length) throw failure('contents 不能为空', 400);
     if (body.tools?.length || body.toolConfig) throw failure('Build 订阅聊天暂不支持 API 工具调用', 400);
     const text = parts => (parts || []).map(p => {

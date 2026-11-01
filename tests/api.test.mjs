@@ -86,7 +86,7 @@ test('SSE is explicitly buffered, one full content event, stop and DONE',async t
 });
 test('invalid parameters fail before executor; body size and Origin enforced',async t=>{
   let calls=0;const f=await fixture(t,{maxBodyBytes:1024,executor:{async execute(){calls++;throw new Error('not called');}}});
-  for(const invalid of [{...body,tools:[]},{...body,model:'no-model'}, {...body,messages:[{role:'user',content:[{type:'image_url',image_url:{url:'x'}}]}]}])assert.ok((await f.call('/v1/chat/completions',invalid)).status>=400);
+  for(const invalid of [{...body,tools:[{type:'function',function:{}}]},{...body,model:'no-model'}, {...body,messages:[{role:'user',content:[{type:'image_url',image_url:{url:'x'}}]}]}])assert.ok((await f.call('/v1/chat/completions',invalid)).status>=400);
   assert.equal((await f.call('/v1/chat/completions',{...body,messages:[{role:'user',content:'x'.repeat(2000)}]})).status,413);
   assert.equal((await f.call('/v1/models',undefined,{headers:{Origin:'https://example.invalid'}})).status,403);assert.equal(calls,0);
   const bad=await fetch(f.url+'/v1/chat/completions',{method:'POST',headers:{authorization:'Bearer '+f.credentials.apiKey,'content-type':'application/json'},body:'{'});assert.equal(bad.status,400);

@@ -1,7 +1,8 @@
 import {randomUUID} from 'node:crypto';
 import {resolveBuildModel,buildModels} from './build-thinking.mjs';
 import {error} from './errors.mjs';
-import {parseSillyTavern} from './sillytavern.mjs';
+import {parseSillyTavern,sillyTavernMessages} from './sillytavern.mjs';
+import {prepareTools,toolInstructions,parseToolReply} from './tool-calling.mjs';
 
 export function models() {return {object:'list',data:buildModels.flatMap(([id])=>[id,'build-st/'+id].map(id=>({id,object:'model',created:0,owned_by:'google-build'})))};}
 export function parseCompletion(body) {
@@ -14,17 +15,24 @@ export function parseCompletion(body) {
   // those controls: omit them from the normalized request below, without
   // rejecting the call or copying them into the prompt. Thinking stays bound
   // to the model suffix. Unsupported input/output capabilities remain explicit.
-  const unsupported=['tools','tool_choice','functions','function_call','response_format','modalities','audio'];
+  const unsupported=['response_format','modalities','audio'];
   for(const key of unsupported)if(body[key]!==undefined&&body[key]!==null)throw error('此接口不支持参数：'+key,400,'unsupported_parameter');
   if(body.n!==undefined&&body.n!==1)throw error('仅支持 n=1');
   if(body.stream!==undefined&&typeof body.stream!=='boolean')throw error('stream 必须为布尔值');
   if(body.stream_options&&Object.keys(body.stream_options).some(k=>k!=='include_usage'))throw error('不支持此 stream_options');
+  const tavernContext=tavern?parseSillyTavern(body.messages):null;
+  const toolContext=prepareTools(tavernContext?{...body,messages:sillyTavernMessages(tavernContext)}:body,{allowAssistantContinuation:tavernContext?.generationType==='continue'});
   if(tavern){
-    const context=parseSillyTavern(body.messages),max=body.max_completion_tokens??body.max_tokens;
+    const context=tavernContext,max=body.max_completion_tokens??body.max_tokens;
     if(max!==undefined&&(!Number.isSafeInteger(max)||max<1||max>1000000))throw error('输出 token 数必须为正整数');
-    return {alias,responseModel:body.model,resolved,stream:body.stream===true,body:{sillytavern:context,contents:[{role:'user',parts:[{text:''}]}],...(max?{generationConfig:{maxOutputTokens:max}}:{})}};
+    return {alias,responseModel:body.model,resolved,stream:body.stream===true,...(toolContext?{toolContext}:{}),body:{sillytavern:context,...(toolContext?{toolProtocol:toolInstructions(toolContext)}:{}),contents:[{role:'user',parts:[{text:''}]}],...(max?{generationConfig:{maxOutputTokens:max}}:{})}};
   }
   if(!Array.isArray(body.messages)||!body.messages.length||body.messages.length>10000)throw error('messages 必须为非空数组，最多 10000 条');
+  if(toolContext){
+    const max=body.max_completion_tokens??body.max_tokens;
+    if(max!==undefined&&(!Number.isSafeInteger(max)||max<1||max>1000000))throw error('输出 token 数必须为正整数');
+    return {alias,resolved,stream:body.stream===true,toolContext,body:{toolTranscript:toolContext.messages,toolProtocol:toolInstructions(toolContext),contents:[{role:'user',parts:[{text:'Continue the attached conversation.'}]}],...(max?{generationConfig:{maxOutputTokens:max}}:{})}};
+  }
   const contents=[];let lastConversationRole;
   for(const m of body.messages) {
     if(!m||!['system','developer','user','assistant'].includes(m.role)||m.tool_calls||m.function_call||m.name)throw error('仅支持 system/developer/user/assistant 文本消息');
@@ -41,9 +49,14 @@ export function parseCompletion(body) {
   if(max!==undefined&&(!Number.isSafeInteger(max)||max<1||max>1000000))throw error('输出 token 数必须为正整数');
   return {alias,resolved,stream:body.stream===true,body:{contents,...(max?{generationConfig:{maxOutputTokens:max}}:{})}};
 }
-export function completion(model,text) {return {id:'chatcmpl-'+randomUUID(),object:'chat.completion',created:Math.floor(Date.now()/1000),model,choices:[{index:0,message:{role:'assistant',content:text},finish_reason:'stop'}],usage:null};}
+export function completion(model,text,toolContext) {
+  const message=parseToolReply(text,toolContext),finish_reason=message.tool_calls?'tool_calls':message.function_call?'function_call':'stop';
+  return {id:'chatcmpl-'+randomUUID(),object:'chat.completion',created:Math.floor(Date.now()/1000),model,choices:[{index:0,message,finish_reason}],usage:null};
+}
 export function bufferedSSE(result) {
   const base={id:result.id,object:'chat.completion.chunk',created:result.created,model:result.model};
-  const frames=[{...base,choices:[{index:0,delta:{role:'assistant',content:result.choices[0].message.content},finish_reason:null}]},{...base,choices:[{index:0,delta:{},finish_reason:'stop'}]}];
+  const {message,finish_reason}=result.choices[0];
+  const delta={...message,...(message.tool_calls?{tool_calls:message.tool_calls.map((call,index)=>({index,...call}))}:{})};
+  const frames=[{...base,choices:[{index:0,delta,finish_reason:null}]},{...base,choices:[{index:0,delta:{},finish_reason}]}];
   return frames.map(v=>'data: '+JSON.stringify(v)+'\n\n').join('')+'data: [DONE]\n\n';
 }
