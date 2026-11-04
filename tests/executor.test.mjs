@@ -26,6 +26,23 @@ function fixture({level='low',wireLevel=level,wireModel='gemini-4-argon',wireUse
 const googlePolicyRefusal="error\nThe model output could not be generated. This output contains sensitive words that violate Google's [Generative AI Prohibited Use policy](https://policies.google.com/terms/generative-ai/use-policy).";
 const googleFilterRefusal="error\nThis request was blocked by Gemini's filters. They can occasionally trigger by mistake on safe coding, security, or biology-related queries. Please try rephrasing your prompt. You can [send feedback](https://ai.google.dev/gemini-api/docs/troubleshooting#file-bug) or read more about [our policies here](https://policies.google.com/terms/generative-ai/use-policy).";
 const previousRefusal={ready:true,count:1,running:false,error:googlePolicyRefusal,pageError:'',responseError:googlePolicyRefusal};
+
+test('document worker reads saved full answer instead of chat receipt then cleans up, with one generation',async()=>{
+ const f=fixture({apiBody:{...body,model:'gemini-4-argon-low-抗截断'},text:'Saved the file.'}),answer='  完整正文\n😀\n  ';
+ f.worker.documentTransport={prepare:async()=>f.events.push('document-prepare'),read:async()=>{f.events.push('document-read');return answer;},clear:async()=>f.events.push('document-clear')};
+ assert.equal(await f.run(),answer);assert.match(f.composer,/write the complete answer/);
+ assert.ok(f.events.indexOf('document-prepare')<f.events.indexOf('Send'));assert.ok(f.events.indexOf('document-read')<f.events.indexOf('document-clear'));assert.equal(f.events.filter(x=>x==='Send').length,1);
+});
+test('document read errors never return a chat receipt or generate a retry',async()=>{
+ const f=fixture({apiBody:{...body,model:'gemini-4-argon-low-抗截断'},text:'Done.'});
+ f.worker.documentTransport={prepare:async()=>{},read:async()=>{throw new Error('document mismatch');},clear:async()=>f.events.push('document-clear')};
+ await assert.rejects(f.run(),/document mismatch/);assert.equal(f.events.filter(x=>x==='Send').length,1);assert.ok(f.events.includes('document-clear'));
+});
+test('attachment cleanup failure still attempts document cleanup',async()=>{
+ const f=fixture({apiBody:{...body,model:'gemini-4-argon-low-抗截断'},cleanupFails:true});
+ f.worker.documentTransport={prepare:async()=>{},read:async()=> 'answer',clear:async()=>f.events.push('document-clear')};
+ await assert.rejects(f.run(),e=>e.code==='context_cleanup_failed');assert.ok(f.events.includes('document-clear'));
+});
 test('ended previous response errors are cleared before a distinct new request uploads files',async()=>{
  for(const error of [googlePolicyRefusal,googleFilterRefusal,'Request timed out','Something went wrong. Please try again.']){
   const f=fixture({initialState:{...previousRefusal,error,responseError:error},context:true});

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Build 连接器 · 酒馆分流",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "自动连接专用 Build 项目，内置酒馆预设分流：预设进输入框，历史和世界书进项目文件。",
   "minimum_chrome_version": "118",
   "permissions": [
@@ -17,11 +17,19 @@
     "https://aistudio.google.com/*",
     "https://ai.studio/*"
   ],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
-      "js": ["sillytavern-main.js"],
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "sillytavern-main.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle"
     },

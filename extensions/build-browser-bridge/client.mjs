@@ -1,5 +1,6 @@
 import {localBase,project,identityExpression,readBuildIdentity,allowedCommands,filterEvent} from './protocol.mjs';
 import {bridgeFailure,identityFailure} from './failures.mjs';
+import {DocumentCapture} from './document-reader.mjs';
 
 export class BridgeClient {
   constructor({chrome,fetcher=(...args)=>globalThis.fetch(...args)}){this.chrome=chrome;this.fetcher=fetcher;this.links=new Map();this.connecting=new Set();this.accountProofs=new Map();this.lastError='';}
@@ -114,6 +115,7 @@ export class BridgeClient {
   }
   event(source,method,params){
     const s=this.links.get(source.tabId);if(!s||source.sessionId)return;
+    s.document?.event(method,params);
     const event=filterEvent(method,params,s.tracked);if(event){s.events.push(event);if(s.events.length>100){this.lastError='扩展事件积压，已断开以避免返回不完整结果';void this.disconnect(s.tabId);}}
   }
   async command(s,command){
@@ -135,6 +137,20 @@ export class BridgeClient {
     signal.throwIfAborted();if(s.closed)throw new Error('浏览器连接已关闭');
     // Never accept/dismiss security dialogs or navigate to other sites.
     if(command.method==='Page.handleJavaScriptDialog'&&command.params.accept!==false)throw new Error('不允许自动接受确认弹窗');
+    if(command.method==='Build.beginDocument'){
+      s.document=new DocumentCapture(s.target,command.params.name);
+      return {id:command.id,value:{ready:true}};
+    }
+    if(command.method==='Build.endDocument'){delete s.document;return {id:command.id,value:{ready:true}};}
+    if(command.method==='Build.readDocument'){
+      if(!s.document)throw new Error('抗截断文档读取尚未准备');
+      const value=await s.document.read(async(method,params)=>{
+        signal.throwIfAborted();
+        if(project((await this.chrome.tabs.get(s.tabId)).url).url!==s.target)throw new Error('专用项目已改变');
+        return this.chrome.debugger.sendCommand({tabId:s.tabId},method,params);
+      },command.params.name);
+      signal.throwIfAborted();return {id:command.id,value};
+    }
     const isIdentity=command.method==='Runtime.evaluate'&&command.params.expression===identityExpression;
     const value=isIdentity?await this.readIdentity(s.tabId,{force:command.params.buildForceIdentity===true,deadline:command.deadline,signal}):await this.chrome.debugger.sendCommand({tabId:s.tabId},command.method,command.params);
     signal.throwIfAborted();

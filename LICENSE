@@ -1,21 +1,51 @@
-MIT License
+Qiwu Noncommercial Attribution License 1.0
+Copyright (c) 2026 qiwu / qiwu622
+Project: https://github.com/qiwu622/build-standalone
 
-Copyright (c) 2026 Build Standalone contributors
+1. Scope and prior rights
+This license applies only to original material first added by the project
+licensor after commit bd6f28cd0f89aa4aff898ef10ee9e6dae022bf86 and to the
+licensor's new copyrightable modifications after that commit (Covered Material).
+It does not revoke or restrict any rights already granted for earlier MIT
+material. Unchanged earlier material remains under its original MIT license,
+reproduced in licenses/build-standalone-legacy-MIT.txt. Third-party material
+retains its own licenses and notices; see THIRD_PARTY_NOTICES.md.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+2. Noncommercial permission
+Subject to these terms, you may use, copy, study, modify, and distribute the
+Covered Material, in source or compiled form, solely for noncommercial purposes.
+Noncommercial means not primarily intended for or directed toward commercial
+advantage or monetary compensation. Paid APIs, paid proxy services, paid hosting,
+integration into paid products, and use primarily serving a commercial business
+require separate written permission from qiwu / qiwu622. A project's name or
+claim of being charitable does not by itself make its use noncommercial.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+3. Attribution and derivatives
+All copies and distributions containing Covered Material, including modified
+versions, must retain this license, its copyright notice, and applicable
+third-party notices. Derivatives must prominently credit "qiwu / qiwu622",
+link to https://github.com/qiwu622/build-standalone in their README or equivalent
+documentation, and clearly identify their modifications. Distributions with a
+user interface must also provide visible attribution in an About page or footer.
+You may not remove these conditions from the Covered Material in derivatives
+or grant downstream permission for its commercial use. This clause does not
+change the independent licenses of old MIT material or third-party components.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+4. No endorsement or service rights
+No trademark or endorsement rights are granted. This license grants no rights
+to Google services, accounts, trademarks, or third-party systems. Those rights
+must be obtained separately from their respective providers.
+
+5. Termination
+Permission for Covered Material terminates upon violation of these terms.
+Termination does not cancel independently granted rights in other material.
+
+6. Disclaimer
+THE COVERED MATERIAL IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE MATERIAL OR ITS USE,
+TO THE EXTENT PERMITTED BY APPLICABLE LAW.
+
+This is a source-available noncommercial license, not an OSI-approved open
+source license. The English text controls; docs/licensing.md is a Chinese guide.

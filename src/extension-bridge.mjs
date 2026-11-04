@@ -7,7 +7,7 @@ import {bridgeFailure} from '../extensions/build-browser-bridge/failures.mjs';
 
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);};
 const lost=()=>error('浏览器扩展已断开；请在常用浏览器的专用 Build 标签页重新连接',503,'extension_disconnected');
-const commands=new Set(['Runtime.evaluate','Input.insertText','Input.dispatchMouseEvent','Network.enable','Page.enable','Page.getFrameTree','Page.reload','Page.handleJavaScriptDialog']);
+const commands=new Set(['Build.beginDocument','Build.readDocument','Build.endDocument','Runtime.evaluate','Input.insertText','Input.dispatchMouseEvent','Network.enable','Page.enable','Page.getFrameTree','Page.reload','Page.handleJavaScriptDialog']);
 const eventNames=new Set(['Inspector.targetCrashed','Network.requestWillBeSent','Network.loadingFailed','Network.responseReceived','Page.javascriptDialogOpening']);
 
 // Pairing and transport credentials exist only in memory, never in URLs or logs.

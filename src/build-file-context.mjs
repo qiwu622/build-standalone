@@ -179,12 +179,12 @@ export class BuildFileContext {
   await this.refresh(send,sid,{cancel});
   await this.wait(send,sid,async()=>{const s=await this.state(send,sid);return !s.dirty&&!s.saving&&s.files.some(Boolean)&&predicate(s);},message,{cancel});
  }
- async clear(send,sid,{cancel=true,allowDirty=false}={}){
+ async clear(send,sid,{cancel=true,allowDirty=false,managedPattern=managedContextName}={}){
   await this.openCode(send,sid,{cancel});
   if((await this.state(send,sid)).saving)await this.settleSaved(send,sid,{cancel});
   const before=await this.state(send,sid);
   if(before.dirty&&!allowDirty)throw fail('Build 项目存在未保存改动，请先在项目页面处理');
-  const names=before.files.filter(x=>managedContextName.test(x));
+  const names=before.files.filter(x=>managedPattern.test(x));
   for(const name of names){
    await this.worker.click(send,sid,'See more actions for '+name);
    await this.worker.click(send,sid,'Delete');
@@ -202,7 +202,7 @@ export class BuildFileContext {
    await sleep(600);
    if((await this.state(send,sid)).dirty)await this.save(send,sid,{cancel});
    else await this.settleSaved(send,sid,{cancel});
-   await this.verifySavedFiles(send,sid,s=>!s.files.some(x=>managedContextName.test(x)),'Build 旧上下文仍然存在，已阻止开始新请求',{cancel});
+   await this.verifySavedFiles(send,sid,s=>!s.files.some(x=>managedPattern.test(x)),'Build 托管文件仍然存在，已阻止开始新请求',{cancel});
   }
   return names.length;
  }

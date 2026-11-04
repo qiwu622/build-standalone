@@ -4,6 +4,7 @@ import {makeAttachmentContext,BuildAttachmentContext} from './build-attachment-c
 import {buildModels,resolveBuildModel,configureBuildThinking,readBuildThinking} from './build-thinking.mjs';
 import {AppError,isContentRefusal, safeFailure} from './errors.mjs';
 import {identityExpression} from '../extensions/build-browser-bridge/protocol.mjs';
+import {BuildDocumentOutput} from './build-document-output.mjs';
 export {buildModels} from './build-thinking.mjs';
 
 const failure = (message, status = 502,code='build_execution_failed') => new AppError(message,status,code);
@@ -177,16 +178,18 @@ export class BuildChatWorker {
         request.thinkingLevel=resolved.thinkingLevel;
         request.upstreamModel=resolved.model;
         request.googleThinkingLevel=null;
-        const context=makeAttachmentContext(buildInput(body));
+        const context=makeAttachmentContext(buildInput(body),{documentOutput:resolved.outputMode==='document'});
+        const output=context.outputDocument;
+        const documents=output?(this.documentTransport||new BuildDocumentOutput(this)):null;
         const transport=this.attachmentTransport;
         const prompt=context.prompt;
         request.contextMode=context.mode;
         return this.cdp(async send => {
             request.stage='browser_session';this.aborted(request);
             const sid = await this.session(send);
-            const faults=[],rpcIds=new Set();let thinkingMismatch=false,wireAccountMismatch=false,primaryError,networkFailure;
+            const faults=[],rpcIds=new Set();let thinkingMismatch=false,wireAccountMismatch=false,primaryError,networkFailure,releaseEvents,documentPrepared=false;
             try {
-            send.onEvent?.(event=>{
+            releaseEvents=send.onEvent?.(event=>{
                 if(event.sessionId!==sid)return;
                 if(event.method==='Inspector.targetCrashed'){request.aborted=true;request.abortStatus=503;request.abortReason='Build 浏览器页面崩溃';void this.log('browser_target_crashed',{},request);}
                 if(event.method==='Network.requestWillBeSent'&&/\/CodeAssistantOffline(?:[/?]|$)/.test(event.params.request?.url||'')){
@@ -214,7 +217,7 @@ export class BuildChatWorker {
                     void this.log('google_http_error',{status:event.params.response.status},request);
                 }
             });
-            await send('Network.enable',{},sid);
+            await send('Network.enable',output?{maxTotalBufferSize:32*1024*1024,maxResourceBufferSize:32*1024*1024}:{},sid);
             request.stage='wait_ready';await this.log('request_stage',{},request);let state = await this.wait(send, sid, s=>s.ready,45000,{allowPreviousResponseError:true});
             // A previous conversation's error is not the outcome of
             // this distinct, unsent request. Preserve the old reply in history,
@@ -238,6 +241,7 @@ export class BuildChatWorker {
                 const legacy=await this.contextTransport.state(send,sid);
                 if(legacy.files.some(name=>managedContextName.test(name)))await this.contextTransport.clear(send,sid);
             }
+            if(documents){await documents.prepare(send,sid,output);documentPrepared=true;}
             // Start a fresh chat before attaching this request's context.
             request.stage='account_verification_after_files';await this.log('request_stage',{},request);
             await this.context(send,sid,'before_new_chat',request);
@@ -267,6 +271,9 @@ export class BuildChatWorker {
             await this.log('thinking_configured',{reason:JSON.stringify({model:resolved.model,thinkingLevel:resolved.thinkingLevel})},request);
             await this.click(send, sid, '关闭面板');
             await transport.verify(send,sid,context);
+            // Drop any old chat stream observed during preparation. Capture only
+            // this single send; a unique document name provides a second binding.
+            if(documents)await send('Build.beginDocument',{name:output.name},sid);
             request.stage='send_prompt';await this.log('request_stage',{},request);const responseStarted=Date.now();await this.fillAndSend(send, sid, prompt, false, request);
             request.stage='wait_response';await this.log('request_stage',{},request);
             let observed = false, settledText, settledHeader, settledAt=0;
@@ -297,10 +304,16 @@ export class BuildChatWorker {
                         if(next.text!==settledText || next.header!==settledHeader || !settledAt) {
                             settledText=next.text;settledHeader=next.header;settledAt=Date.now();
                         } else if(Date.now()-settledAt>=this.responseSettleMs) {
-                            if (!next.text) throw failure('Build 未返回文本；请检查 Google 登录或额度',faults.at(-1)||502,'google_empty_response');
+                            if (!next.text&&!output) throw failure('Build 未返回文本；请检查 Google 登录或额度',faults.at(-1)||502,'google_empty_response');
                             if (!next.header.includes(resolved.displayName)) throw failure('Build 返回的模型与请求不符');
                             this.verifyThinking(request);
-                            const answer=unwrapFileReply(next.text,context);
+                            let answer;
+                            if(documents){
+                                await this.context(send,sid,'before_document_read',request);
+                                answer=await documents.read(send,sid,output);
+                                if(answer===null){await sleep(this.pollInterval);continue;}
+                                await this.context(send,sid,'after_document_read',request);
+                            }else answer=unwrapFileReply(next.text,context);
                             request.responseMs=Date.now()-responseStarted;
                             await this.log('context_reply_received',{durationMs:request.responseMs,reason:context.marker&&next.text.startsWith(context.marker)?'optional_marker_present':'reply_forwarded_without_marker_requirement'},request);
                             chunk?.(answer);
@@ -318,17 +331,28 @@ export class BuildChatWorker {
                 await this.log('execution_error',{status:e.status,code:e.code||e.rotationReason||'build_execution_failed',message:e instanceof AppError?e.message:undefined,submitted:request.submitted===true},request);
                 throw e;
             } finally {
+                releaseEvents?.();
+                if(documents){
+                    await send('Build.endDocument',{},sid).catch(()=>{});
+                }
                 let stoppedCleanly=true;
                 try{await this.stopGeneration(send,sid);}catch(error){stoppedCleanly=false;await this.log('context_cancel_unsettled',{error},request);}
                 if(!stoppedCleanly){if(primaryError)primaryError.cleanupCode='context_cleanup_failed';else throw safeFailure('context_cleanup_failed');}
+                let cleanupFailure;
                 if(context?.uploadStarted&&stoppedCleanly){
                     const cleanupStarted=Date.now();
                     try{
                         const removed=await transport.clear(send,sid,{cancel:false,allowDirty:true});
                         request.contextCleanupMs=Date.now()-cleanupStarted;
                         await this.log('context_cleared',{durationMs:request.contextCleanupMs,reason:JSON.stringify({files:removed})},request);
-                    }catch(error){await this.log('context_cleanup_failed',{code:'context_cleanup_failed',durationMs:Date.now()-cleanupStarted},request);if(primaryError)primaryError.cleanupCode='context_cleanup_failed';else throw safeFailure('context_cleanup_failed');}
+                    }catch(error){await this.log('context_cleanup_failed',{code:'context_cleanup_failed',durationMs:Date.now()-cleanupStarted},request);if(primaryError)primaryError.cleanupCode='context_cleanup_failed';else cleanupFailure=safeFailure('context_cleanup_failed');}
                 }
+                if(documentPrepared&&stoppedCleanly){
+                    request.cleanupDeadline??=Date.now()+45000;
+                    try{await documents.clear(send,sid);}
+                    catch(error){await this.log('document_cleanup_failed',{code:'document_cleanup_failed'},request);if(primaryError)primaryError.cleanupCode='document_cleanup_failed';else cleanupFailure??=failure('回复文档未清理完成，请检查专用项目；未自动重发',502,'document_cleanup_failed');}
+                }
+                if(cleanupFailure)throw cleanupFailure;
 
             }
         });

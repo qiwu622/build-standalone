@@ -13,7 +13,7 @@ export function project(value){
   u.search='';u.hash='';u.searchParams.set('authuser',authUser);return {url:u.href,authUser};
 }
 export const identityExpression=`(${readBuildIdentity.toString()})()`;
-export const allowedCommands=new Set(['Runtime.evaluate','Input.insertText','Input.dispatchMouseEvent','Network.enable','Page.enable','Page.getFrameTree','Page.reload','Page.handleJavaScriptDialog']);
+export const allowedCommands=new Set(['Build.beginDocument','Build.readDocument','Build.endDocument','Runtime.evaluate','Input.insertText','Input.dispatchMouseEvent','Network.enable','Page.enable','Page.getFrameTree','Page.reload','Page.handleJavaScriptDialog']);
 // Forward only the model/thinking/account metadata needed by the executor.
 // Cookies, Authorization, prompt bodies and arbitrary browsing traffic stay out.
 export function filterEvent(method,p,tracked){

@@ -81,6 +81,7 @@ export function createService({config,credentials,executor,store,pool,browsers,l
         res.on('close',cancel);req.on('aborted',cancel);
         res.setHeader('x-build-mode',demo?'demo':'live');res.setHeader('x-build-streaming','buffered');
         res.setHeader('x-build-upstream-model',parsed.resolved.model);res.setHeader('x-build-thinking-level',parsed.resolved.thinkingLevel);
+        res.setHeader('x-build-output',parsed.resolved.outputMode==='document'?'document':'chat');
         if(parsed.body.sillytavern)res.setHeader('x-build-context','sillytavern_split');
         if(parsed.stream)heartbeat=setInterval(()=>{
           if(res.destroyed||res.writableEnded)return;

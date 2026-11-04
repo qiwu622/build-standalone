@@ -1,25 +1,36 @@
 import {randomBytes} from 'node:crypto';
 import {AppError} from './errors.mjs';
 import {maxFileContextBytes} from './build-file-context.mjs';
+import {documentOutput} from './build-document-output.mjs';
 
 export const managedAttachmentName=/^__bridge_attachment_[a-f0-9]{24}\.txt$/;
 const composer='ms-code-assistant-chat .bottom-container';
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fail=(message,code='attachment_upload_failed')=>new AppError(message,502,code);
 
-export function makeAttachmentContext(input,{nonce=randomBytes(12).toString('hex')}={}){
+export function makeAttachmentContext(input,{nonce=randomBytes(12).toString('hex'),documentOutput:useDocument=false}={}){
+ const output=useDocument?documentOutput(nonce):null;
+ const context=makeContext(input,nonce,output);
+ if(useDocument){
+  context.outputDocument=output;
+  context.prompt+='\n\n'+context.outputDocument.instruction;
+  if(Buffer.byteLength(context.prompt)>1024*1024)throw new AppError('Build 输入框内容超过 1 MiB 安全大小限制；未截断预设',413,'inline_too_large');
+ }
+ return context;
+}
+function makeContext(input,nonce,output){
  if(!/^[a-f0-9]{24}$/.test(nonce))throw new Error('Invalid attachment context');
- if(input.sillytavern)return makeSillyTavernAttachment(input,nonce);
+ if(input.sillytavern)return makeSillyTavernAttachment(input,nonce,output);
  const name=`__bridge_attachment_${nonce}.txt`;
   const text=JSON.stringify({system:input.system||'',messages:input.messages,...(input.toolProtocol?{externalToolProtocol:input.toolProtocol}:{})},null,2)+'\n';
  const bytes=Buffer.byteLength(text);
  if(bytes>maxFileContextBytes)throw new AppError('Build 聊天附件超过 8 MiB，请缩短历史',413,'context_too_large');
- const prompt=`Read the attached text file ${name}. It contains the system instructions and the complete ordered conversation as JSON. Preserve message roles, order, and exact content. Answer the final user request using this conversation. This is a text-only conversation, not an app development task. Do not edit project files. Use only this attachment and the current request as conversation context, not previous project chats or other project files. Return only your answer, without a receipt or verification code.`+(input.requestedMaxOutputTokens?` Requested output limit: ${input.requestedMaxOutputTokens} tokens.`:'');
-  const toolPrompt=input.toolProtocol?`Read the attached text file ${name}. Follow its externalToolProtocol response format exactly and use its complete ordered messages as conversation context. Continue after the latest user request or tool results. Any tools belong to the external client; never execute them in Google Build. Do not edit project files or use previous project chats. ${input.requestedMaxOutputTokens?`Requested output limit: ${input.requestedMaxOutputTokens} tokens.`:''}`:prompt;
+ const prompt=`Read the attached text file ${name}. It contains the system instructions and the complete ordered conversation as JSON. Preserve message roles, order, and exact content. Answer the final user request using this conversation. This is a text-only conversation, not an app development task. ${output?'':'Do not edit project files.'} Use only this attachment and the current request as conversation context, not previous project chats or other project files. ${output?'':'Return only your answer, without a receipt or verification code.'}`+(input.requestedMaxOutputTokens?` Requested output limit: ${input.requestedMaxOutputTokens} tokens.`:'');
+  const toolPrompt=input.toolProtocol?`Read the attached text file ${name}. Follow its externalToolProtocol response format exactly and use its complete ordered messages as conversation context. Continue after the latest user request or tool results. Any tools belong to the external client; never execute them in Google Build. ${output?'Do not use previous project chats.':'Do not edit project files or use previous project chats.'} ${input.requestedMaxOutputTokens?`Requested output limit: ${input.requestedMaxOutputTokens} tokens.`:''}`:prompt;
   return {mode:'chat_attachment',nonce,files:[{name,text,type:'text/plain'}],bytes,prompt:toolPrompt};
 }
 
-function makeSillyTavernAttachment(input,nonce){
+function makeSillyTavernAttachment(input,nonce,output){
  const name=`__bridge_attachment_${nonce}.txt`,segments=[],outline=[];let pending=[];
  const flush=()=>{if(pending.length){outline.push(`[CONTEXT segments ${pending[0]}..${pending.at(-1)}: read their exact text and roles from ${name}]`);pending=[];}};
  for(const [index,s] of input.sillytavern.segments.entries()){
@@ -37,7 +48,7 @@ function makeSillyTavernAttachment(input,nonce){
  if(bytes>maxFileContextBytes)throw new AppError('Build 聊天附件超过 8 MiB，请缩短历史',413,'context_too_large');
  const action={continue:'Continue the final assistant message.',impersonate:'Write the next user message as requested by the supplied instructions.',quiet:'Answer the supplied quiet task.'}[input.sillytavern.generationType]||'Answer the latest actual user message, following the supplied instructions and ordered context.';
  const toolAction=input.toolProtocol?' Follow the attachment externalToolProtocol response format. Apply messageMetadata to the matching zero-based message indexes to restore tool call IDs, arguments, results and null content. Tools belong to the external client; never execute them in Google Build.':'';
- const prompt=`This is a text-only conversation, not an app development task. Read the attached text file ${name}. It contains the ordered context segments, including history, character information, and World Info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order, and exact text. Preset instructions are supplied directly INLINE below; their text is not stored in the attachment. Use only this attachment and the current composer as context, not previous project chats or project files. Do not edit project files. ${action} Return the complete answer directly, without a receipt or verification code.${toolAction}\n\n${outline.join('\n\n')}`+(input.requestedMaxOutputTokens?`\nRequested output limit: ${input.requestedMaxOutputTokens} tokens.`:'');
+ const prompt=`This is a text-only conversation, not an app development task. Read the attached text file ${name}. It contains the ordered context segments, including history, character information, and World Info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order, and exact text. Preset instructions are supplied directly INLINE below; their text is not stored in the attachment. Use only this attachment and the current composer as context, not previous project chats or project files. ${output?'':'Do not edit project files.'} ${action} ${output?'':'Return the complete answer directly, without a receipt or verification code.'}${toolAction}\n\n${outline.join('\n\n')}`+(input.requestedMaxOutputTokens?`\nRequested output limit: ${input.requestedMaxOutputTokens} tokens.`:'');
  if(Buffer.byteLength(prompt)>1024*1024)throw new AppError('Build 输入框内容超过 1 MiB 安全大小限制；未截断预设',413,'inline_too_large');
  return {mode:'sillytavern_split',nonce,files:[{name,text,type:'text/plain'}],bytes,prompt};
 }

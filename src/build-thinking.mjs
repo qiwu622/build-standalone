@@ -7,11 +7,13 @@ export const buildBaseModels = [
 export const buildThinkingLevels = ['low', 'medium', 'high'];
 export const buildModels = buildBaseModels.flatMap(([id, name]) => [
     [id, name], ...buildThinkingLevels.map(level => [`${id}-${level}`, `${name} (${level})`]),
-]);
+]).flatMap(([id,name])=>[[id,name],[id+'-抗截断',name+' (文档输出)']]);
 const failure = message => Object.assign(new Error(message), {status: 502, rotationReason: 'thinking_configuration_failed'});
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export function resolveBuildModel(id) {
+    const document=id.endsWith('-抗截断');
+    if(document){const plain=id.slice(0,-4);if(plain.endsWith('-抗截断'))throw Object.assign(new Error('模型变体重复'),{status:404});const base=resolveBuildModel(plain);return {...base,outputMode:'document'};}
     for (const [model, displayName] of buildBaseModels) {
         // Build's existing UI default is high. Reset it for every request so a
         // preceding -low request cannot silently change an unsuffixed request.

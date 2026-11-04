@@ -70,8 +70,8 @@ test('HTTP API authenticates and runs direct executor end to end',async t=>{
   const seen=[];const f=await fixture(t,{executor:{async execute(input,ctx){seen.push({input,ctx});return {text:'DIRECT_OK'};}}});
   assert.equal((await f.call('/v1/models',undefined,{key:'wrong'})).status,401);
   assert.equal((await f.call('/v1/models',undefined,{key:f.credentials.adminKey})).status,401);
-  const models=await (await f.call('/v1/models')).json();assert.equal(models.data.length,16);
-  assert.equal(models.data.filter(m=>m.id.startsWith('build-st/')).length,8);
+  const models=await (await f.call('/v1/models')).json();assert.equal(models.data.length,32);
+  assert.equal(models.data.filter(m=>m.id.startsWith('build-st/')).length,16);
   const response=await f.call('/v1/chat/completions',body),value=await response.json();
   assert.equal(response.status,200);assert.equal(value.choices[0].message.content,'DIRECT_OK');assert.equal(value.usage,null);
   assert.equal(seen[0].input.resolved.model,'gemini-4-argon');assert.equal(seen[0].input.resolved.thinkingLevel,'low');

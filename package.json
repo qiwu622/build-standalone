@@ -1,6 +1,6 @@
 {
   "name": "build-standalone",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Single-process Google AI Studio Build text gateway",
@@ -17,10 +17,12 @@
     "test": "node --test tests/*.test.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "init": "node src/main.mjs --init",
-    "install:browser": "node scripts/install-browser.mjs"
+    "install:browser": "node scripts/install-browser.mjs",
+    "check:release": "node scripts/check-release.mjs ."
   },
   "dependencies": {
-    "ajv": "8.17.1",
+    "ajv": "8.20.0",
     "playwright": "1.64.1"
-  }
+  },
+  "license": "SEE LICENSE IN LICENSE"
 }
